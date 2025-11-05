@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "env": {
+    "SLACK_BOT_TOKEN": "@slack_bot_token",
+    "SLACK_SIGNING_SECRET": "@slack_signing_secret",
+    "CRON_SECRET": "@cron_secret"
+  },
+  "functions": {
+    "api/*.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 9 * * 1-5"
+    },
+    {
+      "path": "/api/cron",
+      "schedule": "0 16 * * 1-5"
+    }
+  ]
+}
