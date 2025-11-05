@@ -225,6 +225,7 @@ module.exports = async (req, res) => {
         console.log(`  정산일: ${settlementDateStr}`);
         console.log(`  알림일: ${paldogamReminderStr} (정산 2영업일 전)`);
 
+
         if (isSameDay(today, paldogamReminder)) {
           const title = getPaldogamTitle(settlementDate, today);
           await sendSettlementReminder(channelId, notifyUserId, title, 'paldogam');
