@@ -131,31 +131,14 @@ async function handleButtonClick(payload) {
 
   // 완료 상태 블록
   const updatedBlocks = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `✅ *${title}* 결재 완료 처리됨`
-      }
-    },
-    {
-      type: "context",
-      elements: [
-        { type: "mrkdwn", text: `처리자: <@${userId}>` }
-      ]
-    },
-    {
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "✅ 완료됨" },
-          style: "primary",
-          disabled: true
-        }
-      ]
+  {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `✅ *${title}* 결재 완료 처리됨\n처리자: <@${userId}>`
     }
-  ];
+  }
+];
 
   // chat.update 시도
   let updated = false;
