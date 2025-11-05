@@ -8,7 +8,7 @@ const CONFIG = {
   // 채널 및 사용자 ID
   TEST_CHANNEL_ID: "U044Z1AB6CT",           // 테스트 채널/DM
   FINANCE_CHANNEL_ID: "C02DA0GK8MC",       // finance-finance 채널
-  NOTIFY_USER_ID: "U044Z1AB6CT",           // 알림 받을 담당자
+  NOTIFY_USER_ID: "U06K3R3R6QK",           // 알림 받을 담당자
   ACTION_USER_ID: "U044Z1AB6CT",           // 결재완료 후 이체 요청 받을 사람
 
   // 미결재 리마인드 정책
