@@ -277,23 +277,31 @@ module.exports = async (req, res) => {
   // 요청 본문 수집 (Slack 검증용)
   // ============================================
   let body = '';
-  
+
   return new Promise((resolve, reject) => {
     req.on('data', chunk => {
       body += chunk.toString();
     });
-
+  
     req.on('end', async () => {
       try {
         req.rawBody = body;
-
-        // ============================================
-        // Slack 요청 검증
-        // ============================================
+  
         if (!verifySlackRequest(req)) {
           console.warn('⚠️ Slack 검증 실패');
           resolve(res.status(401).json({ error: 'Unauthorized' }));
           return;
+        }
+  
+        // payload 파싱 수정
+        let payload;
+        if (body.startsWith('payload=')) {
+          // x-www-form-urlencoded 형식
+          const params = new URLSearchParams(body);
+          payload = JSON.parse(params.get('payload'));
+        } else {
+          // JSON 형식
+          payload = JSON.parse(body);
         }
 
         console.log('✅ Slack 검증 성공');
