@@ -197,7 +197,7 @@ module.exports = async (req, res) => {
       console.log(`  정산일: ${formatDate(quenitSettlement)}`);
       console.log(`  알림일: ${quenitReminderStr} (정산 2영업일 전)`);
 
-      if (true) {  // 항상 알림 보내기
+     if (isSameDay(today, quenitReminder)) {
         const title = `퀸잇 ${today.getMonth() + 1}월 정산`;
         await sendSettlementReminder(channelId, notifyUserId, title, 'queenit');
         remindersSent++;
