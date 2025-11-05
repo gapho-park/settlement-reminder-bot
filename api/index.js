@@ -24,7 +24,6 @@ function verifySlackRequest(req) {
     return false;
   }
   
-  // 타임스탬프가 5분 이상 지난 요청은 거부 (replay attack 방지)
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - parseInt(timestamp)) > 300) {
     console.warn('⚠️ 요청이 너무 오래됨 (5분 이상)');
@@ -105,48 +104,7 @@ class SlackClient {
 const slack = new SlackClient();
 
 // ============================================
-// 정산일 계산 함수
-// ============================================
-function getQuenitSettlementDate(currentDate) {
-  const y = currentDate.getFullYear();
-  const m = currentDate.getMonth();
-  const fifteenth = new Date(y, m, 15);
-  const lastDay = new Date(y, m + 1, 0);
-
-  const s15 = isHolidayOrWeekend(fifteenth) ? getPreviousBusinessDay(fifteenth) : fifteenth;
-  const slast = isHolidayOrWeekend(lastDay) ? getPreviousBusinessDay(lastDay) : lastDay;
-
-  if (s15 >= currentDate) return stripTime(s15);
-  if (slast >= currentDate) return stripTime(slast);
-  return null;
-}
-
-function getPaldogamSettlementDates(currentDate) {
-  const y = currentDate.getFullYear();
-  const m = currentDate.getMonth();
-  const days = [5, 15, 25];
-  const out = [];
-  
-  days.forEach(d => {
-    const dt = new Date(y, m, d);
-    const s = isHolidayOrWeekend(dt) ? getNextBusinessDay(dt) : dt;
-    if (stripTime(s) >= currentDate) out.push(stripTime(s));
-  });
-  
-  return out;
-}
-
-function getPaldogamTitle(settlementDate, today) {
-  const month = today.getMonth() + 1;
-  const day = settlementDate.getDate();
-  if (day >= 5 && day <= 10) return `팔도감 ${month}월 3차정산`;
-  if (day >= 15 && day <= 20) return `팔도감 ${month}월 2차정산`;
-  if (day >= 25) return `팔도감 ${month}월 1차정산`;
-  return `팔도감 ${month}월 정산`;
-}
-
-// ============================================
-// 버튼 클릭 처리 (메인 로직)
+// 버튼 클릭 처리
 // ============================================
 async function handleButtonClick(payload) {
   console.log("✅ Block actions 수신");
@@ -171,9 +129,7 @@ async function handleButtonClick(payload) {
 
   console.log("DEBUG ctx:", JSON.stringify({ channelId, ts, userId }));
 
-  // ============================================
-  // 1단계: 완료 상태 블록 생성
-  // ============================================
+  // 완료 상태 블록
   const updatedBlocks = [
     {
       type: "section",
@@ -201,9 +157,7 @@ async function handleButtonClick(payload) {
     }
   ];
 
-  // ============================================
-  // 2단계: chat.update로 원본 메시지 업데이트
-  // ============================================
+  // chat.update 시도
   let updated = false;
   if (channelId && ts) {
     console.log("🔄 chat.update 시도:", { channelId, ts });
@@ -216,9 +170,7 @@ async function handleButtonClick(payload) {
     console.warn("⚠️ channelId/ts 누락:", { channelId, ts });
   }
 
-  // ============================================
-  // 3단계: response_url 폴백 (chat.update 실패시)
-  // ============================================
+  // response_url 폴백
   if (!updated && payload.response_url) {
     console.log("💬 response_url 폴백 사용");
     try {
@@ -233,9 +185,7 @@ async function handleButtonClick(payload) {
     }
   }
 
-  // ============================================
-  // 4단계: 스레드에 이체 요청 메시지 발송
-  // ============================================
+  // 스레드에 이체 요청 메시지
   if (channelId && ts) {
     const text = [
       `<@${CONFIG.ACTION_USER_ID}>님 정산대금 결재가 완료되었습니다. 이체요청을 해주세요.`,
@@ -256,26 +206,21 @@ async function handleButtonClick(payload) {
 }
 
 // ============================================
-// 메인 핸들러 (Vercel Serverless Function)
+// 메인 핸들러
 // ============================================
 module.exports = async (req, res) => {
   console.log(`📨 요청 수신: ${req.method}`);
 
-  // OPTIONS 요청 처리
   if (req.method === 'OPTIONS') {
     console.log('✅ OPTIONS 요청 응답');
     return res.status(200).end();
   }
 
-  // POST 요청만 처리
   if (req.method !== 'POST') {
     console.warn('❌ POST가 아닌 요청:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // ============================================
-  // 요청 본문 수집 (Slack 검증용)
-  // ============================================
   let body = '';
 
   return new Promise((resolve, reject) => {
@@ -289,58 +234,42 @@ module.exports = async (req, res) => {
   
         if (!verifySlackRequest(req)) {
           console.warn('⚠️ Slack 검증 실패');
-          resolve(res.status(401).json({ error: 'Unauthorized' }));
-          return;
-        }
-  
-        // payload 파싱 수정
-        let payload;
-        if (body.startsWith('payload=')) {
-          // x-www-form-urlencoded 형식
-          const params = new URLSearchParams(body);
-          payload = JSON.parse(params.get('payload'));
-        } else {
-          // JSON 형식
-          payload = JSON.parse(body);
+          return resolve(res.status(401).json({ error: 'Unauthorized' }));
         }
 
         console.log('✅ Slack 검증 성공');
 
-        // ============================================
-        // JSON 파싱
-        // ============================================
+        // Payload 파싱 (x-www-form-urlencoded 형식 처리)
         let payload;
         try {
-          payload = JSON.parse(body);
+          if (body.startsWith('payload=')) {
+            const params = new URLSearchParams(body);
+            payload = JSON.parse(params.get('payload'));
+          } else {
+            payload = JSON.parse(body);
+          }
         } catch (err) {
-          console.error('❌ JSON 파싱 실패:', err.message);
-          return resolve(res.status(400).json({ error: 'Invalid JSON' }));
+          console.error('❌ Payload 파싱 실패:', err.message);
+          return resolve(res.status(400).json({ error: 'Invalid payload' }));
         }
 
         console.log('📋 Payload type:', payload.type);
 
-        // ============================================
-        // URL Verification 처리
-        // ============================================
+        // URL Verification
         if (payload.type === 'url_verification') {
-          console.log('✅ URL Verification 요청 - Challenge 응답');
+          console.log('✅ URL Verification 요청');
           return resolve(res.status(200).json({ 
             challenge: payload.challenge 
           }));
         }
 
-        // ============================================
-        // Block Actions 처리 (버튼 클릭)
-        // ============================================
+        // Block Actions (버튼 클릭)
         if (payload.type === 'block_actions') {
           console.log('🎬 Block actions 처리 시작');
           const result = await handleButtonClick(payload);
           return resolve(res.status(200).json(result));
         }
 
-        // ============================================
-        // 기타 이벤트
-        // ============================================
         console.log('ℹ️ 처리되지 않은 이벤트 타입:', payload.type);
         return resolve(res.status(200).json({ ok: true }));
 
