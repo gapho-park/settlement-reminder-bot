@@ -11,6 +11,7 @@
       "maxDuration": 60
     }
   },
+  "outputDirectory": "api",
   "crons": [
     {
       "path": "/api/cron",
