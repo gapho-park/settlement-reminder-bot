@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "echo 'Build successful'",
+  "outputDirectory": ".",
   "env": {
     "SLACK_BOT_TOKEN": "@slack_bot_token",
     "SLACK_SIGNING_SECRET": "@slack_signing_secret",
