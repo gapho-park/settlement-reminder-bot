@@ -1,6 +1,7 @@
 // api/cron.js
 // 정산 알림 자동화 (매일 09:00 실행)
-// 퀸잇: 11일, 25일 / 팔도감: 1일, 11일, 25일
+// 1. 정산일: 첫 알림 발송
+// 2. 정산일 아님: 미완료 건 리마인드
 
 const axios = require('axios');
 const CONFIG = require('./config');
@@ -63,6 +64,26 @@ class SlackClient {
       return null;
     }
   }
+
+  async getConversationHistory(channel, limit = 100) {
+    try {
+      console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
+      const response = await axios.post(`${this.baseURL}/conversations.history`, {
+        channel,
+        limit
+      }, { headers: this.headers });
+
+      if (!response.data.ok) {
+        console.error('❌ conversations.history 오류:', response.data.error);
+        return [];
+      }
+      console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
+      return response.data.messages || [];
+    } catch (err) {
+      console.error('❌ getConversationHistory 실패:', err.message);
+      return [];
+    }
+  }
 }
 
 const slack = new SlackClient();
@@ -105,39 +126,47 @@ module.exports = async (req, res) => {
     let alertsSent = 0;
 
     // ============================================
-    // Queenit 정산 알림
+    // Queenit 정산 확인
     // ============================================
     console.log('\n🔍 Queenit 정산 확인');
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
-      console.log(`✅ Queenit ${currentDay}일 알림 발송 대상`);
-      await sendFirstApprovalAlert('queenit', currentMonth, currentDay);
+      // 정산일: 첫 알림 발송
+      console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
+      await sendFirstApprovalAlert('queenit', currentMonth);
       alertsSent++;
     } else {
-      console.log(`📌 Queenit: 오늘(${currentDay}일)은 알림 대상이 아님`);
+      // 정산일 아님: 미완료 건 리마인드
+      console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
+      const reminded = await remindIncompleteSettlements('queenit', currentMonth);
+      alertsSent += reminded;
     }
 
     // ============================================
-    // Paldogam 정산 알림
+    // Paldogam 정산 확인
     // ============================================
     console.log('\n🔍 Paldogam 정산 확인');
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      console.log(`✅ Paldogam ${currentDay}일 알림 발송 대상`);
-      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay);
+      // 정산일: 첫 알림 발송
+      console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
+      await sendFirstApprovalAlert('paldogam', currentMonth);
       alertsSent++;
     } else {
-      console.log(`📌 Paldogam: 오늘(${currentDay}일)은 알림 대상이 아님`);
+      // 정산일 아님: 미완료 건 리마인드
+      console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
+      const reminded = await remindIncompleteSettlements('paldogam', currentMonth);
+      alertsSent += reminded;
     }
 
     // ============================================
     // 결과 반환
     // ============================================
     console.log(`\n${'='.repeat(50)}`);
-    console.log(`✅ 크론 작업 완료 - ${alertsSent}건 발송`);
+    console.log(`✅ 크론 작업 완료 - ${alertsSent}건 처리`);
     console.log(`${'='.repeat(50)}\n`);
 
     return res.status(200).json({
       ok: true,
-      alertsSent,
+      processed: alertsSent,
       timestamp: new Date().toISOString()
     });
 
@@ -156,7 +185,7 @@ module.exports = async (req, res) => {
 // ============================================
 // 첫 번째 승인 알림 발송
 // ============================================
-async function sendFirstApprovalAlert(platform, month, day) {
+async function sendFirstApprovalAlert(platform, month) {
   const flow = APPROVAL_FLOW[platform];
   const firstStep = flow.steps[0];
 
@@ -192,4 +221,90 @@ async function sendFirstApprovalAlert(platform, month, day) {
   } else {
     console.error(`❌ ${platform} ${month}월 알림 발송 실패`);
   }
+}
+
+// ============================================
+// 미완료 건 리마인드
+// ============================================
+async function remindIncompleteSettlements(platform, month) {
+  console.log(`\n📋 ${platform} ${month}월 미완료 건 확인 시작`);
+
+  // 채널 메시지 조회
+  const messages = await slack.getConversationHistory(CONFIG.TEST_CHANNEL_ID, 100);
+
+  if (messages.length === 0) {
+    console.log('📌 조회된 메시지 없음');
+    return 0;
+  }
+
+  // 미완료 건 찾기
+  const incompleteSettlements = [];
+
+  for (const msg of messages) {
+    // ✅로 시작하지 않는 메시지 = 미완료
+    if (msg.text && !msg.text.startsWith('✅')) {
+      // platform과 month가 포함된 메시지만 찾기
+      if (msg.text.includes(platform) && msg.text.includes(`${month}월`)) {
+        // 버튼이 있는 메시지인지 확인 (완료 버튼이 있으면 미완료)
+        if (msg.blocks) {
+          const hasButton = msg.blocks.some(block => 
+            block.type === 'actions' && 
+            block.elements?.some(el => el.action_id === 'settlement_approve_button')
+          );
+
+          if (hasButton) {
+            incompleteSettlements.push(msg);
+            console.log(`📌 미완료 건 발견: ${msg.text.substring(0, 50)}`);
+          }
+        }
+      }
+    }
+  }
+
+  if (incompleteSettlements.length === 0) {
+    console.log(`✅ ${platform} ${month}월 미완료 건 없음`);
+    return 0;
+  }
+
+  // 각 미완료 건에 리마인드 메시지 추가
+  let reminded = 0;
+  for (const settlement of incompleteSettlements) {
+    // 현재 완료되지 않은 단계의 담당자 찾기
+    let currentStep = 0;
+    let userToRemind = null;
+
+    // 메시지의 버튼 value에서 step 정보 추출
+    if (settlement.blocks) {
+      const actionBlock = settlement.blocks.find(b => b.type === 'actions');
+      if (actionBlock?.elements?.[0]?.value) {
+        try {
+          const actionData = JSON.parse(actionBlock.elements[0].value);
+          currentStep = actionData.step;
+          const flow = APPROVAL_FLOW[platform];
+          if (flow && flow.steps[currentStep]) {
+            userToRemind = flow.steps[currentStep].userId;
+          }
+        } catch (err) {
+          console.warn('⚠️ 버튼 데이터 파싱 실패');
+        }
+      }
+    }
+
+    if (userToRemind) {
+      const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.`;
+
+      const result = await slack.postMessage(CONFIG.TEST_CHANNEL_ID, {
+        thread_ts: settlement.ts,
+        text: reminderMsg
+      });
+
+      if (result) {
+        console.log(`✅ 리마인드 메시지 발송: ${userToRemind}`);
+        reminded++;
+      }
+    }
+  }
+
+  console.log(`📊 ${platform} ${month}월: ${reminded}건 리마인드`);
+  return reminded;
 }
