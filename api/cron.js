@@ -136,6 +136,10 @@ module.exports = async (req, res) => {
     const currentMonth = today.getMonth() + 1;
     console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일)`);
 
+    // 채널 선택: testDate가 있으면 테스트 채널, 아니면 파이낸스 채널
+    const channelId = req.query.testDate ? CONFIG.TEST_CHANNEL_ID : CONFIG.FINANCE_CHANNEL_ID;
+    console.log(`📢 사용 채널: ${channelId}`);
+
     let alertsSent = 0;
 
     // ============================================
@@ -145,12 +149,12 @@ module.exports = async (req, res) => {
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
       // 정산일: 첫 알림 발송
       console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('queenit', currentMonth, currentDay);
+      await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
       alertsSent++;
     } else {
       // 정산일 아님: 미완료 건 리마인드
       console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      const reminded = await remindIncompleteSettlements('queenit', currentMonth);
+      const reminded = await remindIncompleteSettlements('queenit', currentMonth, channelId);
       alertsSent += reminded;
     }
 
@@ -161,12 +165,12 @@ module.exports = async (req, res) => {
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
       // 정산일: 첫 알림 발송
       console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay);
+      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
       alertsSent++;
     } else {
       // 정산일 아님: 미완료 건 리마인드
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      const reminded = await remindIncompleteSettlements('paldogam', currentMonth);
+      const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
       alertsSent += reminded;
     }
 
@@ -198,7 +202,7 @@ module.exports = async (req, res) => {
 // ============================================
 // 첫 번째 승인 알림 발송
 // ============================================
-async function sendFirstApprovalAlert(platform, month, day) {
+async function sendFirstApprovalAlert(platform, month, day, channelId) {
   const flow = APPROVAL_FLOW[platform];
   const firstStep = flow.steps[0];
   const title = getSettlementTitle(platform, day, month);
@@ -228,7 +232,7 @@ async function sendFirstApprovalAlert(platform, month, day) {
     ]
   };
 
-  const result = await slack.postMessage(CONFIG.TEST_CHANNEL_ID, payload);
+  const result = await slack.postMessage(channelId, payload);
 
   if (result) {
     console.log(`✅ ${platform} ${month}월 첫 번째 알림 발송`);
@@ -240,11 +244,11 @@ async function sendFirstApprovalAlert(platform, month, day) {
 // ============================================
 // 미완료 건 리마인드
 // ============================================
-async function remindIncompleteSettlements(platform, month) {
+async function remindIncompleteSettlements(platform, month, channelId) {
   console.log(`\n📋 ${platform} ${month}월 미완료 건 확인 시작`);
 
   // 채널 메시지 조회
-  const messages = await slack.getConversationHistory(CONFIG.TEST_CHANNEL_ID, 100);
+  const messages = await slack.getConversationHistory(channelId, 100);
 
   if (messages.length === 0) {
     console.log('📌 조회된 메시지 없음');
@@ -307,7 +311,7 @@ async function remindIncompleteSettlements(platform, month) {
     if (userToRemind) {
       const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.`;
 
-      const result = await slack.postMessage(CONFIG.TEST_CHANNEL_ID, {
+      const result = await slack.postMessage(channelId, {
         thread_ts: settlement.ts,
         text: reminderMsg
       });
