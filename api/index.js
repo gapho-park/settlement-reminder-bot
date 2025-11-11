@@ -1,9 +1,8 @@
 // api/index.js
-// Slack 버튼 클릭 처리 및 승인 플로우 관리
+// Slack 버튼 클릭 처리 및 5단계 승인 플로우
 
 const axios = require('axios');
 const crypto = require('crypto');
-const { kv } = require('@vercel/kv');
 const CONFIG = require('./config');
 
 // ============================================
@@ -142,27 +141,16 @@ async function handleButtonClick(payload) {
     return { ok: false };
   }
 
-  const { settlementId, platform, step } = actionData;
+  const { platform, step, month } = actionData;
   const channelId = payload.container?.channel_id || payload.channel?.id;
   const ts = payload.container?.message_ts || payload.message?.ts;
   const userId = payload.user?.id;
   const userName = payload.user?.name || 'Unknown';
 
-  console.log(`🔄 승인 처리: ${settlementId}, step=${step}, userId=${userId}`);
+  console.log(`🔄 승인 처리: platform=${platform}, step=${step}, userId=${userId}`);
 
-  // ============================================
-  // KV에서 정산건 조회
-  // ============================================
-  let settlement;
-  try {
-    settlement = await kv.hgetall(settlementId);
-  } catch (err) {
-    console.error('❌ KV 조회 실패:', err.message);
-    return { ok: false };
-  }
-
-  if (!settlement) {
-    console.error('❌ 정산건을 찾을 수 없음:', settlementId);
+  if (!APPROVAL_FLOW[platform]) {
+    console.error('❌ 잘못된 플랫폼:', platform);
     return { ok: false };
   }
 
@@ -170,12 +158,11 @@ async function handleButtonClick(payload) {
   const currentStepData = flow.steps[step];
   const nextStep = step + 1;
   const isLastStep = nextStep >= flow.steps.length;
-  const month = settlement.month;
 
   // ============================================
   // 현재 단계 메시지 업데이트 (완료 표시)
   // ============================================
-  const currentStepBlocks = [
+  const completedBlocks = [
     {
       type: "section",
       text: {
@@ -195,7 +182,7 @@ async function handleButtonClick(payload) {
   ];
 
   const updated = await slack.updateMessage(channelId, ts, {
-    blocks: currentStepBlocks,
+    blocks: completedBlocks,
     text: `${platform} ${month}월 정산 - 완료`
   });
 
@@ -207,12 +194,9 @@ async function handleButtonClick(payload) {
   // 마지막 단계 완료
   // ============================================
   if (isLastStep) {
-    console.log(`🎉 모든 승인 완료: ${settlementId}`);
-    
-    // KV 정산건 삭제
-    await kv.del(settlementId);
+    console.log(`🎉 모든 승인 완료: ${platform} ${month}월`);
 
-    // 스레드에 완료 메시지
+    // 스레드에 최종 완료 메시지
     await slack.postMessage(channelId, {
       thread_ts: ts,
       text: `✅ 모든 승인이 완료되었습니다!\n정산건: ${platform} ${month}월\n이체 등록 처리 완료`
@@ -225,9 +209,6 @@ async function handleButtonClick(payload) {
   // 다음 단계로 진행
   // ============================================
   console.log(`➡️ 다음 단계로: step=${nextStep}`);
-
-  // KV 업데이트
-  await kv.hset(settlementId, { currentStep: nextStep });
 
   const nextStepData = flow.steps[nextStep];
   const nextMessage = `<@${nextStepData.userId}>님 ${nextStepData.message.replace('{month}', month)}`;
@@ -249,7 +230,7 @@ async function handleButtonClick(payload) {
           {
             type: "button",
             text: { type: "plain_text", text: "완료" },
-            value: JSON.stringify({ settlementId, platform, step: nextStep }),
+            value: JSON.stringify({ platform, step: nextStep, month }),
             action_id: "settlement_approve_button"
           }
         ]
