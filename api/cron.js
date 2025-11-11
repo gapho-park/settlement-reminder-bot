@@ -10,25 +10,38 @@ const { stripTime, formatDate } = require('./utils');
 // ============================================
 // 설정
 // ============================================
+// 정산 유형별 제목 생성 함수
+function getSettlementTitle(platform, day, month) {
+  if (platform === 'queenit') {
+    if (day === 11) return `퀸잇 ${month}월 정규 정산대금`;
+    if (day === 25) return `퀨잇 ${month}월 보름 정산대금`;
+  } else if (platform === 'paldogam') {
+    if (day === 1) return `팔도감 ${month}월 3차 정산대금`;
+    if (day === 11) return `팔도감 ${month}월 1차 정산대금`;
+    if (day === 21) return `팔도감 ${month}월 2차 정산대금`;
+  }
+  return `${platform} ${month}월 정산대금`;
+}
+
 const APPROVAL_FLOW = {
   queenit: {
     dates: [11, 25],
     steps: [
-      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '퀸잇 {month}월 정산대금 기안 등록이 완료 되었나요?' },
-      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '퀸잇 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'ceo', userId: 'U013R34Q719', message: '퀸잇 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '퀸잇 {month}월 정산대금 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '퀸잇 {month}월 정산대금 이체요청드립니다.' }
+      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
+      { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
+      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   },
   paldogam: {
-    dates: [1, 11, 25],
+    dates: [1, 11, 21],
     steps: [
-      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '팔도감 {month}월 정산대금 기안 등록이 완료 되었나요?' },
-      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '팔도감 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'ceo', userId: 'U013R34Q719', message: '팔도감 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '팔도감 {month}월 정산대금 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '팔도감 {month}월 정산대금 이체요청드립니다.' }
+      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
+      { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
+      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   }
 };
@@ -132,7 +145,7 @@ module.exports = async (req, res) => {
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
       // 정산일: 첫 알림 발송
       console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('queenit', currentMonth);
+      await sendFirstApprovalAlert('queenit', currentMonth, currentDay);
       alertsSent++;
     } else {
       // 정산일 아님: 미완료 건 리마인드
@@ -148,7 +161,7 @@ module.exports = async (req, res) => {
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
       // 정산일: 첫 알림 발송
       console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('paldogam', currentMonth);
+      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay);
       alertsSent++;
     } else {
       // 정산일 아님: 미완료 건 리마인드
@@ -185,11 +198,12 @@ module.exports = async (req, res) => {
 // ============================================
 // 첫 번째 승인 알림 발송
 // ============================================
-async function sendFirstApprovalAlert(platform, month) {
+async function sendFirstApprovalAlert(platform, month, day) {
   const flow = APPROVAL_FLOW[platform];
   const firstStep = flow.steps[0];
+  const title = getSettlementTitle(platform, day, month);
 
-  const message = `<@${firstStep.userId}>님 ${firstStep.message.replace('{month}', month)}`;
+  const message = `<@${firstStep.userId}>님 ${firstStep.message.replace('{title}', title)}`;
 
   const payload = {
     blocks: [
@@ -206,7 +220,7 @@ async function sendFirstApprovalAlert(platform, month) {
           {
             type: "button",
             text: { type: "plain_text", text: "완료" },
-            value: JSON.stringify({ platform, step: 0, month }),
+            value: JSON.stringify({ platform, step: 0, month, day, title }),
             action_id: "settlement_approve_button"
           }
         ]
