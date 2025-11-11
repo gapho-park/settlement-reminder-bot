@@ -78,22 +78,44 @@ class SlackClient {
     }
   }
 
-  async getConversationHistory(channel, limit = 100) {
+  async updateMessage(channel, ts, payload) {
     try {
-      console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
-      const response = await axios.post(`${this.baseURL}/conversations.history`, {
+      console.log(`🔄 메시지 업데이트: channel=${channel}, ts=${ts}`);
+      const response = await axios.post(`${this.baseURL}/chat.update`, {
         channel,
+        ts,
+        ...payload
+      }, { headers: this.headers });
+
+      if (!response.data.ok) {
+        console.error('❌ chat.update 오류:', response.data.error);
+        return false;
+      }
+      console.log('✅ 메시지 업데이트 성공');
+      return true;
+    } catch (err) {
+      console.error('❌ updateMessage 실패:', err.message);
+      return false;
+    }
+  }
+
+  async getThreadReplies(channel, ts, limit = 100) {
+    try {
+      console.log(`📝 스레드 메시지 조회: channel=${channel}, ts=${ts}`);
+      const response = await axios.post(`${this.baseURL}/conversations.replies`, {
+        channel,
+        ts,
         limit
       }, { headers: this.headers });
 
       if (!response.data.ok) {
-        console.error('❌ conversations.history 오류:', response.data.error);
+        console.error('❌ conversations.replies 오류:', response.data.error);
         return [];
       }
-      console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
+      console.log(`✅ ${response.data.messages.length}개 스레드 메시지 조회됨`);
       return response.data.messages || [];
     } catch (err) {
-      console.error('❌ getConversationHistory 실패:', err.message);
+      console.error('❌ getThreadReplies 실패:', err.message);
       return [];
     }
   }
@@ -242,7 +264,7 @@ async function sendFirstApprovalAlert(platform, month, day, channelId) {
 }
 
 // ============================================
-// 미완료 건 리마인드
+// 미완료 건 리마인드 (매일 새 멘션 메시지)
 // ============================================
 async function remindIncompleteSettlements(platform, month, channelId) {
   console.log(`\n📋 ${platform} ${month}월 미완료 건 확인 시작`);
@@ -309,7 +331,7 @@ async function remindIncompleteSettlements(platform, month, channelId) {
     }
 
     if (userToRemind) {
-      const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.`;
+      const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.\n시간: ${new Date().toLocaleString('ko-KR')}`;
 
       const result = await slack.postMessage(channelId, {
         thread_ts: settlement.ts,
@@ -317,7 +339,7 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       });
 
       if (result) {
-        console.log(`✅ 리마인드 메시지 발송: ${userToRemind}`);
+        console.log(`✅ 리마인더 메시지 발송: ${userToRemind}`);
         reminded++;
       }
     }
