@@ -3,7 +3,6 @@
 // 퀸잇: 11일, 25일 / 팔도감: 1일, 11일, 25일
 
 const axios = require('axios');
-const { kv } = require('@vercel/kv');
 const CONFIG = require('./config');
 const { stripTime, formatDate } = require('./utils');
 
@@ -111,21 +110,7 @@ module.exports = async (req, res) => {
     console.log('\n🔍 Queenit 정산 확인');
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
       console.log(`✅ Queenit ${currentDay}일 알림 발송 대상`);
-      const settlementId = `queenit_${today.getFullYear()}_${currentMonth}`;
-      
-      // KV에 정산건 생성
-      await kv.hset(settlementId, {
-        platform: 'queenit',
-        month: currentMonth,
-        year: today.getFullYear(),
-        currentStep: 0,
-        createdAt: new Date().toISOString(),
-        channelId: CONFIG.TEST_CHANNEL_ID,
-        ts: null
-      });
-
-      // 첫 번째 단계 알림 발송
-      await sendApprovalAlert(settlementId, 'queenit', currentMonth);
+      await sendFirstApprovalAlert('queenit', currentMonth, currentDay);
       alertsSent++;
     } else {
       console.log(`📌 Queenit: 오늘(${currentDay}일)은 알림 대상이 아님`);
@@ -137,21 +122,7 @@ module.exports = async (req, res) => {
     console.log('\n🔍 Paldogam 정산 확인');
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
       console.log(`✅ Paldogam ${currentDay}일 알림 발송 대상`);
-      const settlementId = `paldogam_${today.getFullYear()}_${currentMonth}`;
-      
-      // KV에 정산건 생성
-      await kv.hset(settlementId, {
-        platform: 'paldogam',
-        month: currentMonth,
-        year: today.getFullYear(),
-        currentStep: 0,
-        createdAt: new Date().toISOString(),
-        channelId: CONFIG.TEST_CHANNEL_ID,
-        ts: null
-      });
-
-      // 첫 번째 단계 알림 발송
-      await sendApprovalAlert(settlementId, 'paldogam', currentMonth);
+      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay);
       alertsSent++;
     } else {
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 알림 대상이 아님`);
@@ -183,16 +154,15 @@ module.exports = async (req, res) => {
 };
 
 // ============================================
-// 승인 알림 발송
+// 첫 번째 승인 알림 발송
 // ============================================
-async function sendApprovalAlert(settlementId, platform, month) {
+async function sendFirstApprovalAlert(platform, month, day) {
   const flow = APPROVAL_FLOW[platform];
-  const step = flow.steps[0]; // 첫 번째 단계
+  const firstStep = flow.steps[0];
 
-  const message = `<@${step.userId}>님 ${step.message.replace('{month}', month)}`;
+  const message = `<@${firstStep.userId}>님 ${firstStep.message.replace('{month}', month)}`;
 
   const payload = {
-    channel: CONFIG.TEST_CHANNEL_ID,
     blocks: [
       {
         type: "section",
@@ -207,7 +177,7 @@ async function sendApprovalAlert(settlementId, platform, month) {
           {
             type: "button",
             text: { type: "plain_text", text: "완료" },
-            value: JSON.stringify({ settlementId, platform, step: 0 }),
+            value: JSON.stringify({ platform, step: 0, month }),
             action_id: "settlement_approve_button"
           }
         ]
@@ -218,8 +188,6 @@ async function sendApprovalAlert(settlementId, platform, month) {
   const result = await slack.postMessage(CONFIG.TEST_CHANNEL_ID, payload);
 
   if (result) {
-    // ts 저장
-    await kv.hset(settlementId, { ts: result.ts });
     console.log(`✅ ${platform} ${month}월 첫 번째 알림 발송`);
   } else {
     console.error(`❌ ${platform} ${month}월 알림 발송 실패`);
