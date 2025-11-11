@@ -1,5 +1,6 @@
 // api/cron.js
 // 정산 알림 자동화 (매일 09:00, 16:00 실행)
+// ✅ testDate 파라미터 지원
 
 const axios = require('axios');
 const CONFIG = require('./config');
@@ -165,9 +166,20 @@ module.exports = async (req, res) => {
     }
 
     // ============================================
-    // 현재 날짜 계산
+    // 현재 날짜 계산 (testDate 파라미터 지원)
     // ============================================
-    const today = stripTime(new Date());
+    let today;
+    
+    // testDate 쿼리 파라미터 확인
+    if (req.query.testDate) {
+      console.log(`🧪 테스트 모드: testDate=${req.query.testDate}`);
+      // YYYY-MM-DD 형식의 문자열을 Date 객체로 변환
+      const [year, month, day] = req.query.testDate.split('-').map(Number);
+      today = stripTime(new Date(year, month - 1, day));
+    } else {
+      today = stripTime(new Date());
+    }
+    
     const todayStr = formatDate(today);
     console.log(`📅 오늘 날짜: ${todayStr}`);
 
@@ -197,7 +209,7 @@ module.exports = async (req, res) => {
       console.log(`  정산일: ${formatDate(quenitSettlement)}`);
       console.log(`  알림일: ${quenitReminderStr} (정산 2영업일 전)`);
 
-     if (isSameDay(today, quenitReminder)) {
+      if (isSameDay(today, quenitReminder)) {
         const title = `퀸잇 ${today.getMonth() + 1}월 정산`;
         await sendSettlementReminder(channelId, notifyUserId, title, 'queenit');
         remindersSent++;
@@ -225,7 +237,6 @@ module.exports = async (req, res) => {
         console.log(`  정산일: ${settlementDateStr}`);
         console.log(`  알림일: ${paldogamReminderStr} (정산 2영업일 전)`);
 
-
         if (isSameDay(today, paldogamReminder)) {
           const title = getPaldogamTitle(settlementDate, today);
           await sendSettlementReminder(channelId, notifyUserId, title, 'paldogam');
@@ -246,7 +257,8 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       ok: true,
       remindersSent,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      testDate: req.query.testDate || null
     });
 
   } catch (err) {
