@@ -8,23 +8,36 @@ const CONFIG = require('./config');
 // ============================================
 // 설정
 // ============================================
+// 정산 유형별 제목 생성 함수
+function getSettlementTitle(platform, day, month) {
+  if (platform === 'queenit') {
+    if (day === 11) return `퀸잇 ${month}월 정규 정산대금`;
+    if (day === 25) return `퀸잇 ${month}월 보름 정산대금`;
+  } else if (platform === 'paldogam') {
+    if (day === 1) return `팔도감 ${month}월 3차 정산대금`;
+    if (day === 11) return `팔도감 ${month}월 1차 정산대금`;
+    if (day === 21) return `팔도감 ${month}월 2차 정산대금`;
+  }
+  return `${platform} ${month}월 정산대금`;
+}
+
 const APPROVAL_FLOW = {
   queenit: {
     steps: [
-      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '퀸잇 {month}월 정산대금 기안 등록이 완료 되었나요?' },
-      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '퀸잇 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'ceo', userId: 'U013R34Q719', message: '퀸잇 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '퀸잇 {month}월 정산대금 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '퀸잇 {month}월 정산대금 이체요청드립니다.' }
+      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
+      { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
+      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   },
   paldogam: {
     steps: [
-      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '팔도감 {month}월 정산대금 기안 등록이 완료 되었나요?' },
-      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '팔도감 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'ceo', userId: 'U013R34Q719', message: '팔도감 {month}월 정산대금 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '팔도감 {month}월 정산대금 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '팔도감 {month}월 정산대금 이체요청드립니다.' }
+      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
+      { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
+      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   }
 };
@@ -141,7 +154,7 @@ async function handleButtonClick(payload) {
     return { ok: false };
   }
 
-  const { platform, step, month } = actionData;
+  const { platform, step, month, day, title } = actionData;
   const channelId = payload.container?.channel_id || payload.channel?.id;
   const ts = payload.container?.message_ts || payload.message?.ts;
   const userId = payload.user?.id;
@@ -158,6 +171,9 @@ async function handleButtonClick(payload) {
   const currentStepData = flow.steps[step];
   const nextStep = step + 1;
   const isLastStep = nextStep >= flow.steps.length;
+  
+  // title이 없으면 생성
+  const settlementTitle = title || getSettlementTitle(platform, day, month);
 
   // ============================================
   // 현재 단계 메시지 업데이트 (완료 표시)
@@ -167,7 +183,7 @@ async function handleButtonClick(payload) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `✅ *${platform.toUpperCase()} ${month}월 정산* - ${currentStepData.role}`
+        text: `✅ *${settlementTitle}* - ${currentStepData.role}`
       }
     },
     {
@@ -183,7 +199,7 @@ async function handleButtonClick(payload) {
 
   const updated = await slack.updateMessage(channelId, ts, {
     blocks: completedBlocks,
-    text: `${platform} ${month}월 정산 - 완료`
+    text: `${settlementTitle} - 완료`
   });
 
   if (!updated) {
@@ -199,7 +215,7 @@ async function handleButtonClick(payload) {
     // 스레드에 최종 완료 메시지
     await slack.postMessage(channelId, {
       thread_ts: ts,
-      text: `✅ 모든 승인이 완료되었습니다!\n정산건: ${platform} ${month}월\n이체 등록 처리 완료`
+      text: `✅ 모든 승인이 완료되었습니다!\n정산건: ${settlementTitle}\n이체 등록 처리 완료`
     });
 
     return { ok: true };
@@ -211,7 +227,7 @@ async function handleButtonClick(payload) {
   console.log(`➡️ 다음 단계로: step=${nextStep}`);
 
   const nextStepData = flow.steps[nextStep];
-  const nextMessage = `<@${nextStepData.userId}>님 ${nextStepData.message.replace('{month}', month)}`;
+  const nextMessage = `<@${nextStepData.userId}>님 ${nextStepData.message.replace('{title}', settlementTitle)}`;
 
   // 스레드에 다음 단계 메시지 추가
   const threadResult = await slack.postMessage(channelId, {
@@ -230,7 +246,7 @@ async function handleButtonClick(payload) {
           {
             type: "button",
             text: { type: "plain_text", text: "완료" },
-            value: JSON.stringify({ platform, step: nextStep, month }),
+            value: JSON.stringify({ platform, step: nextStep, month, day, title: settlementTitle }),
             action_id: "settlement_approve_button"
           }
         ]
