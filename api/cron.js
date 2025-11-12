@@ -8,13 +8,12 @@ const CONFIG = require('./config');
 const { stripTime, formatDate } = require('./utils');
 
 // ============================================
-// 설정
-// ============================================
 // 정산 유형별 제목 생성 함수
+// ============================================
 function getSettlementTitle(platform, day, month) {
   if (platform === 'queenit') {
     if (day === 11) return `퀸잇 ${month}월 정규 정산대금`;
-    if (day === 25) return `퀨잇 ${month}월 보름 정산대금`;
+    if (day === 25) return `퀸잇 ${month}월 보름 정산대금`;
   } else if (platform === 'paldogam') {
     if (day === 1) return `팔도감 ${month}월 3차 정산대금`;
     if (day === 11) return `팔도감 ${month}월 1차 정산대금`;
@@ -23,11 +22,14 @@ function getSettlementTitle(platform, day, month) {
   return `${platform} ${month}월 정산대금`;
 }
 
+// ============================================
+// 설정
+// ============================================
 const APPROVAL_FLOW = {
   queenit: {
     dates: [11, 25],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -37,7 +39,7 @@ const APPROVAL_FLOW = {
   paldogam: {
     dates: [1, 11, 21],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -99,23 +101,22 @@ class SlackClient {
     }
   }
 
-  async getThreadReplies(channel, ts, limit = 100) {
+  async getConversationHistory(channel, limit = 100) {
     try {
-      console.log(`📝 스레드 메시지 조회: channel=${channel}, ts=${ts}`);
-      const response = await axios.post(`${this.baseURL}/conversations.replies`, {
+      console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
+      const response = await axios.post(`${this.baseURL}/conversations.history`, {
         channel,
-        ts,
         limit
       }, { headers: this.headers });
 
       if (!response.data.ok) {
-        console.error('❌ conversations.replies 오류:', response.data.error);
+        console.error('❌ conversations.history 오류:', response.data.error);
         return [];
       }
-      console.log(`✅ ${response.data.messages.length}개 스레드 메시지 조회됨`);
+      console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
       return response.data.messages || [];
     } catch (err) {
-      console.error('❌ getThreadReplies 실패:', err.message);
+      console.error('❌ getConversationHistory 실패:', err.message);
       return [];
     }
   }
