@@ -24,7 +24,7 @@ function getSettlementTitle(platform, day, month) {
 const APPROVAL_FLOW = {
   queenit: {
     steps: [
-      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting_manager', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -33,7 +33,7 @@ const APPROVAL_FLOW = {
   },
   paldogam: {
     steps: [
-      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting_manager', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
