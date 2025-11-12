@@ -29,7 +29,7 @@ const APPROVAL_FLOW = {
   queenit: {
     dates: [11, 25],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -39,7 +39,7 @@ const APPROVAL_FLOW = {
   paldogam: {
     dates: [1, 11, 21],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -105,21 +105,9 @@ class SlackClient {
     try {
       console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
       
-      // 1단계: conversations.history 시도 (일반 채널)
-      console.log(`🔍 conversations.history 시도...`);
-      let response = await axios.get(`${this.baseURL}/conversations.history`, {
-        headers: this.headers,
-        params: { channel, limit }
-      });
-
-      if (response.data.ok) {
-        console.log(`✅ conversations.history 성공: ${response.data.messages.length}개 메시지`);
-        return response.data.messages || [];
-      }
-
-      // 2단계: channels.history 시도 (채널)
+      // 1단계: channels.history 시도 (공개 채널)
       console.log(`📺 channels.history 시도...`);
-      response = await axios.get(`${this.baseURL}/channels.history`, {
+      let response = await axios.get(`${this.baseURL}/channels.history`, {
         headers: this.headers,
         params: { channel, limit }
       });
@@ -129,7 +117,7 @@ class SlackClient {
         return response.data.messages || [];
       }
 
-      // 3단계: groups.history 시도 (그룹 채널)
+      // 2단계: groups.history 시도 (그룹 채널)
       console.log(`📋 groups.history 시도...`);
       response = await axios.get(`${this.baseURL}/groups.history`, {
         headers: this.headers,
@@ -141,7 +129,7 @@ class SlackClient {
         return response.data.messages || [];
       }
 
-      // 4단계: im.history 시도 (DM)
+      // 3단계: im.history 시도 (DM)
       console.log(`💬 im.history 시도...`);
       response = await axios.get(`${this.baseURL}/im.history`, {
         headers: this.headers,
