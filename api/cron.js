@@ -105,36 +105,45 @@ class SlackClient {
     try {
       console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
       
-      // 먼저 conversations.history 시도 (일반 채널)
+      // 1단계: conversations.history 시도 (일반 채널)
+      console.log(`🔍 conversations.history 시도...`);
       let response = await axios.post(`${this.baseURL}/conversations.history`, {
         channel,
         limit
       }, { headers: this.headers });
 
-      // conversations.history 실패 시 groups.history 시도 (그룹 채널)
-      if (!response.data.ok && response.data.error === 'missing_scope') {
-        console.log(`📋 groups.history 시도: channel=${channel}`);
-        response = await axios.post(`${this.baseURL}/groups.history`, {
-          channel,
-          limit
-        }, { headers: this.headers });
+      if (response.data.ok) {
+        console.log(`✅ conversations.history 성공: ${response.data.messages.length}개 메시지`);
+        return response.data.messages || [];
       }
 
-      // groups.history도 실패 시 im.history 시도 (DM)
-      if (!response.data.ok && response.data.error === 'missing_scope') {
-        console.log(`💬 im.history 시도: channel=${channel}`);
-        response = await axios.post(`${this.baseURL}/im.history`, {
-          channel,
-          limit
-        }, { headers: this.headers });
+      // 2단계: groups.history 시도 (그룹 채널)
+      console.log(`📋 groups.history 시도...`);
+      response = await axios.post(`${this.baseURL}/groups.history`, {
+        channel,
+        limit
+      }, { headers: this.headers });
+
+      if (response.data.ok) {
+        console.log(`✅ groups.history 성공: ${response.data.messages.length}개 메시지`);
+        return response.data.messages || [];
       }
 
-      if (!response.data.ok) {
-        console.error('❌ 메시지 조회 오류:', response.data.error);
-        return [];
+      // 3단계: im.history 시도 (DM)
+      console.log(`💬 im.history 시도...`);
+      response = await axios.post(`${this.baseURL}/im.history`, {
+        channel,
+        limit
+      }, { headers: this.headers });
+
+      if (response.data.ok) {
+        console.log(`✅ im.history 성공: ${response.data.messages.length}개 메시지`);
+        return response.data.messages || [];
       }
-      console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
-      return response.data.messages || [];
+
+      // 모두 실패
+      console.error('❌ 모든 메시지 조회 시도 실패:', response.data.error);
+      return [];
     } catch (err) {
       console.error('❌ getConversationHistory 실패:', err.message);
       return [];
