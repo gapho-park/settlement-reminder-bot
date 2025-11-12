@@ -104,13 +104,13 @@ class SlackClient {
   async getConversationHistory(channel, limit = 100) {
     try {
       console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
-      const response = await axios.post(`${this.baseURL}/conversations.history`, {
+      const response = await axios.post(`${this.baseURL}/channels.history`, {
         channel,
         limit
       }, { headers: this.headers });
 
       if (!response.data.ok) {
-        console.error('❌ conversations.history 오류:', response.data.error);
+        console.error('❌ channels.history 오류:', response.data.error);
         return [];
       }
       console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
@@ -332,7 +332,7 @@ async function remindIncompleteSettlements(platform, month, channelId) {
     }
 
     if (userToRemind) {
-      const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.\n시간: ${new Date().toLocaleString('ko-KR')}`;
+      const reminderMsg = `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.\n시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;
 
       const result = await slack.postMessage(channelId, {
         thread_ts: settlement.ts,
