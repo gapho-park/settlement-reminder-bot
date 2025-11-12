@@ -410,14 +410,15 @@ def get_all_files_in_thread(client, channel_id: str, thread_ts: str) -> list:
     try:
         print(f"🔍 스레드에서 파일 조회 중: {channel_id}/{thread_ts}")
         
-        history = client.conversations_replies(
+        # slack_bolt 클라이언트 사용
+        response = client.conversations_replies(
             channel=channel_id,
             ts=thread_ts,
             limit=100
         )
         
         files = []
-        for msg in history.get("messages", []):
+        for msg in response.get("messages", []):
             for file_obj in msg.get("files", []):
                 file_info = {
                     "id": file_obj.get("id"),
@@ -429,8 +430,33 @@ def get_all_files_in_thread(client, channel_id: str, thread_ts: str) -> list:
         
         print(f"📊 총 {len(files)}개 파일 발견")
         return files
+    except TypeError as e:
+        print(f"❌ TypeError 발생: {e}")
+        print("  → 다시 시도 중...")
+        try:
+            # 다른 방식 시도
+            response = client.conversations_replies(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                limit=100
+            )
+            files = []
+            for msg in response.get("messages", []):
+                for file_obj in msg.get("files", []):
+                    file_info = {
+                        "id": file_obj.get("id"),
+                        "name": file_obj.get("name"),
+                        "url_private": file_obj.get("url_private")
+                    }
+                    files.append(file_info)
+            return files
+        except Exception as e2:
+            print(f"❌ 재시도 실패: {e2}")
+            return []
     except Exception as e:
         print(f"❌ 파일 조회 오류: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def find_file_message_timestamp(client, channel_id: str, file_id: str) -> Optional[str]:
