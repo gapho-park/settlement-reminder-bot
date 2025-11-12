@@ -117,7 +117,19 @@ class SlackClient {
         return response.data.messages || [];
       }
 
-      // 2단계: groups.history 시도 (그룹 채널)
+      // 2단계: channels.history 시도 (채널)
+      console.log(`📺 channels.history 시도...`);
+      response = await axios.post(`${this.baseURL}/channels.history`, {
+        channel,
+        limit
+      }, { headers: this.headers });
+
+      if (response.data.ok) {
+        console.log(`✅ channels.history 성공: ${response.data.messages.length}개 메시지`);
+        return response.data.messages || [];
+      }
+
+      // 3단계: groups.history 시도 (그룹 채널)
       console.log(`📋 groups.history 시도...`);
       response = await axios.post(`${this.baseURL}/groups.history`, {
         channel,
@@ -129,7 +141,7 @@ class SlackClient {
         return response.data.messages || [];
       }
 
-      // 3단계: im.history 시도 (DM)
+      // 4단계: im.history 시도 (DM)
       console.log(`💬 im.history 시도...`);
       response = await axios.post(`${this.baseURL}/im.history`, {
         channel,
