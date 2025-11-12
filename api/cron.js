@@ -107,10 +107,10 @@ class SlackClient {
       
       // 1단계: conversations.history 시도 (일반 채널)
       console.log(`🔍 conversations.history 시도...`);
-      let response = await axios.post(`${this.baseURL}/conversations.history`, {
-        channel,
-        limit
-      }, { headers: this.headers });
+      let response = await axios.get(`${this.baseURL}/conversations.history`, {
+        headers: this.headers,
+        params: { channel, limit }
+      });
 
       if (response.data.ok) {
         console.log(`✅ conversations.history 성공: ${response.data.messages.length}개 메시지`);
@@ -119,10 +119,10 @@ class SlackClient {
 
       // 2단계: channels.history 시도 (채널)
       console.log(`📺 channels.history 시도...`);
-      response = await axios.post(`${this.baseURL}/channels.history`, {
-        channel,
-        limit
-      }, { headers: this.headers });
+      response = await axios.get(`${this.baseURL}/channels.history`, {
+        headers: this.headers,
+        params: { channel, limit }
+      });
 
       if (response.data.ok) {
         console.log(`✅ channels.history 성공: ${response.data.messages.length}개 메시지`);
@@ -131,10 +131,10 @@ class SlackClient {
 
       // 3단계: groups.history 시도 (그룹 채널)
       console.log(`📋 groups.history 시도...`);
-      response = await axios.post(`${this.baseURL}/groups.history`, {
-        channel,
-        limit
-      }, { headers: this.headers });
+      response = await axios.get(`${this.baseURL}/groups.history`, {
+        headers: this.headers,
+        params: { channel, limit }
+      });
 
       if (response.data.ok) {
         console.log(`✅ groups.history 성공: ${response.data.messages.length}개 메시지`);
@@ -143,10 +143,10 @@ class SlackClient {
 
       // 4단계: im.history 시도 (DM)
       console.log(`💬 im.history 시도...`);
-      response = await axios.post(`${this.baseURL}/im.history`, {
-        channel,
-        limit
-      }, { headers: this.headers });
+      response = await axios.get(`${this.baseURL}/im.history`, {
+        headers: this.headers,
+        params: { channel, limit }
+      });
 
       if (response.data.ok) {
         console.log(`✅ im.history 성공: ${response.data.messages.length}개 메시지`);
