@@ -29,7 +29,7 @@ const APPROVAL_FLOW = {
   queenit: {
     dates: [11, 25],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -39,7 +39,7 @@ const APPROVAL_FLOW = {
   paldogam: {
     dates: [1, 11, 21],
     steps: [
-      { role: 'settlement_owner', userId: 'U044Z1AB6CT', message: '{title} 기안 등록이 완료 되었나요?' },
+      { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
       { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
@@ -104,13 +104,33 @@ class SlackClient {
   async getConversationHistory(channel, limit = 100) {
     try {
       console.log(`📜 채널 메시지 조회: channel=${channel}, limit=${limit}`);
-      const response = await axios.post(`${this.baseURL}/channels.history`, {
+      
+      // 먼저 conversations.history 시도 (일반 채널)
+      let response = await axios.post(`${this.baseURL}/conversations.history`, {
         channel,
         limit
       }, { headers: this.headers });
 
+      // conversations.history 실패 시 groups.history 시도 (그룹 채널)
+      if (!response.data.ok && response.data.error === 'missing_scope') {
+        console.log(`📋 groups.history 시도: channel=${channel}`);
+        response = await axios.post(`${this.baseURL}/groups.history`, {
+          channel,
+          limit
+        }, { headers: this.headers });
+      }
+
+      // groups.history도 실패 시 im.history 시도 (DM)
+      if (!response.data.ok && response.data.error === 'missing_scope') {
+        console.log(`💬 im.history 시도: channel=${channel}`);
+        response = await axios.post(`${this.baseURL}/im.history`, {
+          channel,
+          limit
+        }, { headers: this.headers });
+      }
+
       if (!response.data.ok) {
-        console.error('❌ channels.history 오류:', response.data.error);
+        console.error('❌ 메시지 조회 오류:', response.data.error);
         return [];
       }
       console.log(`✅ ${response.data.messages.length}개 메시지 조회됨`);
