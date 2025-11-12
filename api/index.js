@@ -27,8 +27,8 @@ const APPROVAL_FLOW = {
       { role: 'settlement_owner', userId: 'U02JESZKDAT', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
+      { role: 'accounting_manager', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'finance_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   },
   paldogam: {
@@ -36,8 +36,8 @@ const APPROVAL_FLOW = {
       { role: 'settlement_owner', userId: 'U0499M26EJ2', message: '{title} 기안 등록이 완료 되었나요?' },
       { role: 'finance_lead', userId: 'U03ABD7F9DE', message: '{title} 결재 요청 드립니다.' },
       { role: 'ceo', userId: 'U013R34Q719', message: '{title} 결재 요청 드립니다.' },
-      { role: 'accounting', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
-      { role: 'fund_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
+      { role: 'accounting_manager', userId: 'U06K3R3R6QK', message: '{title} 결재가 완료되었나요?' },
+      { role: 'finance_manager', userId: 'U044Z1AB6CT', message: '{title} 이체요청드립니다.' }
     ]
   }
 };
