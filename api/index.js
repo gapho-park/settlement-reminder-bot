@@ -183,7 +183,7 @@ async function handleButtonClick(payload) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `✅ *${settlementTitle}* - ${currentStepData.role}`
+        text: `✅ *${settlementTitle}*`
       }
     },
     {
