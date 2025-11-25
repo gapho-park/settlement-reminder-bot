@@ -204,9 +204,15 @@ module.exports = async (req, res) => {
     // ============================================
     console.log('\n🔍 Queenit 정산 확인');
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
-      console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
-      alertsSent++;
+      // ✅ 이미 보낸 알림이 있는지 확인
+      const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
+      if (alreadySent) {
+        console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+      } else {
+        console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
+        await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
+        alertsSent++;
+      }
     } else {
       console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
       const reminded = await remindIncompleteSettlements('queenit', currentMonth, channelId);
@@ -218,9 +224,15 @@ module.exports = async (req, res) => {
     // ============================================
     console.log('\n🔍 Paldogam 정산 확인');
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
-      await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
-      alertsSent++;
+      // ✅ 이미 보낸 알림이 있는지 확인
+      const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+      if (alreadySent) {
+        console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+      } else {
+        console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
+        await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
+        alertsSent++;
+      }
     } else {
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
       const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
@@ -250,6 +262,35 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+// ============================================
+// 이미 발송된 정산 알림이 있는지 확인
+// ============================================
+async function checkExistingAlert(platform, month, channelId) {
+  const messages = await slack.getConversationHistory(channelId, 50); // 최근 50개만 확인해도 충분
+  
+  for (const msg of messages) {
+    const text = msg.text || '';
+    const blockText = (msg.blocks || [])
+      .flatMap(b => (b.text?.text ? [b.text.text] : []))
+      .join(' ');
+
+    const content = `${text}\n${blockText}`;
+    
+    // 조건: 플랫폼 이름 + N월 + 버튼 존재
+    // (완료된 건 '✅'도 포함해서 체크해야 함. 이미 완료된 건이 있으면 알림을 또 보내면 안 되므로)
+    const hasButton = (msg.blocks || []).some(
+      b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
+    );
+    
+    // ✅ 주의: 텍스트 매칭 시 '11월' 같은 월 정보도 일치해야 함
+    if (content.includes(platform) && content.includes(`${month}월`) && hasButton) {
+      console.log(`📌 기존 알림 발견: ${msg.ts}`);
+      return true;
+    }
+  }
+  return false;
+}
 
 // ============================================
 // 첫 번째 승인 알림 발송
