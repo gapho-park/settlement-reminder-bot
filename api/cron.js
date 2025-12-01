@@ -223,19 +223,35 @@ module.exports = async (req, res) => {
     // Paldogam 정산 확인
     // ============================================
     console.log('\n🔍 Paldogam 정산 확인');
+    
+    // 팔도감 월 계산 (3차 정산인 1일은 전월 귀속)
+    let paldogamTargetMonth = currentMonth;
+    if (currentDay === 1) {
+      paldogamTargetMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    }
+
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      // ✅ 이미 보낸 알림이 있는지 확인
-      const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+      // ✅ 이미 보낸 알림이 있는지 확인 (계산된 월 기준)
+      const alreadySent = await checkExistingAlert('paldogam', paldogamTargetMonth, channelId);
       if (alreadySent) {
         console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
       } else {
-        console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
-        await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
+        console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송 (대상월: ${paldogamTargetMonth}월)`);
+        await sendFirstApprovalAlert('paldogam', paldogamTargetMonth, currentDay, channelId);
         alertsSent++;
       }
     } else {
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
+      
+      // 3차(전월)와 1,2차(당월)가 혼재할 수 있으므로 전월/당월 모두 리마인드 체크
+      const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+      
+      console.log(`👉 [Paldogam] 전월(${prevMonth}월) 미완료 건 확인`);
+      let reminded = await remindIncompleteSettlements('paldogam', prevMonth, channelId);
+      
+      console.log(`👉 [Paldogam] 당월(${currentMonth}월) 미완료 건 확인`);
+      reminded += await remindIncompleteSettlements('paldogam', currentMonth, channelId);
+      
       alertsSent += reminded;
     }
 
@@ -358,23 +374,17 @@ async function remindIncompleteSettlements(platform, month, channelId) {
 
     const searchable = `${text}\n${blockText}`;
 
-    // 완료 공지(예: '✅ ...')는 스킵
-    if (text.startsWith('✅')) continue;
+    // 우리 메시지인지 식별: 플랫폼/월 키워드 (한글 명칭 매핑)
+    const platformKo = platform === 'queenit' ? '퀸잇' : (platform === 'paldogam' ? '팔도감' : platform);
+    const isTarget = searchable.includes(platformKo) && searchable.includes(`${month}월`);
 
-    // 우리 메시지인지 식별: 플랫폼/월 키워드 + 버튼 존재
-    const hasButton = (msg.blocks || []).some(
-      b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
-    );
-    const isTarget = searchable.includes(platform) && searchable.includes(`${month}월`);
-
-    if (isTarget && hasButton) {
+    if (isTarget) {
       incompleteSettlements.push(msg);
-      console.log(`📌 미완료 건 발견: ts=${msg.ts}`);
     }
   }
 
   if (incompleteSettlements.length === 0) {
-    console.log(`✅ ${platform} ${month}월 미완료 건 없음`);
+    console.log(`✅ ${platform} ${month}월 관련 메시지 없음 (검색어: ${platformKo}, ${month}월)`);
     return 0;
   }
 
@@ -385,11 +395,44 @@ async function remindIncompleteSettlements(platform, month, channelId) {
   let reminded = 0;
 
   for (const settlement of incompleteSettlements) {
-    // 현재 완료되지 않은 단계 담당자 파악
+    // 스레드 답글 조회 (부모 메시지 포함)
+    const replies = await slack.getThreadReplies(channelId, settlement.ts, 100);
+    
+    // 1. 최종 완료 여부 확인
+    const isCompleted = replies.some(r => r.text && r.text.includes('✅ 모든 승인이 완료되었습니다'));
+    if (isCompleted) {
+      console.log(`✅ 이미 완료된 정산건: ts=${settlement.ts}`);
+      continue;
+    }
+
+    // 2. 가장 최신의 버튼이 있는 메시지 찾기 (역순 탐색)
+    // (본문 또는 블록에 'settlement_approve_button' 액션 ID가 있는 메시지)
+    let latestActionMsg = null;
+    for (let i = replies.length - 1; i >= 0; i--) {
+      const r = replies[i];
+      const hasButton = (r.blocks || []).some(
+        b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
+      );
+      if (hasButton) {
+        latestActionMsg = r;
+        break;
+      }
+    }
+
+    if (!latestActionMsg) {
+      // 버튼이 있는 메시지를 찾지 못한 경우 (첫 메시지 생성 후 삭제되었거나 등)
+      // 하지만 첫 메시지 자체에 버튼이 있을 수 있음 (replies[0] === settlement)
+      // 위 루프는 replies 전체를 돌므로 포함됨.
+      // 만약 여기까지 왔는데도 없으면 정말 없는 것.
+      console.log(`⚠️ 진행 중인 버튼을 찾을 수 없음: ts=${settlement.ts}`);
+      continue;
+    }
+
+    // 3. 현재 단계 및 담당자 파악
     let currentStep = 0;
     let userToRemind = null;
 
-    const actionBlock = (settlement.blocks || []).find(b => b.type === 'actions');
+    const actionBlock = (latestActionMsg.blocks || []).find(b => b.type === 'actions');
     const firstEl = actionBlock?.elements?.[0];
     if (firstEl?.value) {
       try {
@@ -404,10 +447,12 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       }
     }
 
-    if (!userToRemind) continue;
+    if (!userToRemind) {
+      console.warn(`⚠️ 리마인드 대상 유저를 찾을 수 없음: ts=${latestActionMsg.ts}`);
+      continue;
+    }
 
-    // 스레드 내 최근 리마인드 여부 체크
-    const replies = await slack.getThreadReplies(channelId, settlement.ts, 100);
+    // 4. 스레드 내 최근 리마인드 여부 체크
     const hasRecentReminder = replies.some(r => {
       const txt = (r.text || '').trim();
       const isOurReminder = txt.startsWith('⏰ *리마인더*');
@@ -421,6 +466,7 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       continue;
     }
 
+    // 5. 리마인드 발송
     const reminderMsg =
       `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.\n` +
       `시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;

@@ -21,6 +21,14 @@ function getSettlementTitle(platform, day, month) {
   return `${platform} ${month}월 정산대금`;
 }
 
+const STEP_COMPLETION_TEXT = [
+  '결재요청 단계 완료',
+  '결재승인 완료 (리더)',
+  '결재승인 완료 (대표이사)',
+  '협조승인 완료',
+  '이체등록 완료'
+];
+
 const APPROVAL_FLOW = {
   queenit: {
     steps: [
@@ -174,6 +182,8 @@ async function handleButtonClick(payload) {
   
   // title이 없으면 생성
   const settlementTitle = title || getSettlementTitle(platform, day, month);
+  const approvalTimeKst = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const completionText = STEP_COMPLETION_TEXT[step] || `${currentStepData.role} 단계 완료`;
 
   // ============================================
   // 현재 단계 메시지 업데이트 (완료 표시)
@@ -191,7 +201,11 @@ async function handleButtonClick(payload) {
       elements: [
         {
           type: "mrkdwn",
-          text: `승인자: <@${userId}> (${userName}) | 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
+          text: completionText
+        },
+        {
+          type: "mrkdwn",
+          text: `승인자: <@${userId}> (${userName}) | 시간: ${approvalTimeKst}`
         }
       ]
     }
@@ -199,7 +213,7 @@ async function handleButtonClick(payload) {
 
   const updated = await slack.updateMessage(channelId, ts, {
     blocks: completedBlocks,
-    text: `${settlementTitle} - 완료`
+    text: `${settlementTitle} - ${completionText}`
   });
 
   if (!updated) {
