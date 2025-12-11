@@ -191,11 +191,28 @@ module.exports = async (req, res) => {
     const todayStr = formatDate(today);
     const currentDay = today.getDate();
     const currentMonth = today.getMonth() + 1;
+    
+    // 한국 시간 기준 시각 구하기 (오후 실행 시 신규 알림 방지용)
+    // toLocaleString은 "2025. 12. 11. 오후 4:55:00" 형식으로 나올 수 있음 (Node 버전에 따라 다름)
+    // 안전하게 Intl.DateTimeFormat 사용
+    const kstDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const currentHourKst = kstDate.getHours();
+    
     console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일)`);
+    console.log(`⏰ 현재 시각(KST): ${currentHourKst}시`);
 
     // 채널 선택: testDate가 있으면 테스트 채널, 아니면 파이낸스 채널
     const channelId = req.query.testDate ? CONFIG.TEST_CHANNEL_ID : CONFIG.FINANCE_CHANNEL_ID;
     console.log(`📢 사용 채널: ${channelId}`);
+    
+    // [안전장치] 오후 12시 이후에는 신규 알림(New Alert) 발송 차단
+    // 단, testDate 파라미터로 강제 테스트하는 경우는 제외
+    const isAfternoon = currentHourKst >= 12;
+    const isTestMode = !!req.query.testDate;
+    
+    if (isAfternoon && !isTestMode) {
+        console.log('🚫 오후(12시 이후) 실행이므로 신규 정산 알림은 건너뛰고 리마인더만 수행합니다.');
+    }
 
     let alertsSent = 0;
 
@@ -204,14 +221,18 @@ module.exports = async (req, res) => {
     // ============================================
     console.log('\n🔍 Queenit 정산 확인');
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
-      // ✅ 이미 보낸 알림이 있는지 확인
-      const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
-      if (alreadySent) {
-        console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+      if (isAfternoon && !isTestMode) {
+         console.log(`⏳ [SKIP] Queenit ${currentDay}일 정산일이지만 오후라 신규 발송 생략`);
       } else {
-        console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
-        await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
-        alertsSent++;
+        // ✅ 이미 보낸 알림이 있는지 확인
+        const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
+        if (alreadySent) {
+          console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+        } else {
+          console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
+          await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
+          alertsSent++;
+        }
       }
     } else {
       console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
@@ -231,14 +252,18 @@ module.exports = async (req, res) => {
     }
 
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      // ✅ 이미 보낸 알림이 있는지 확인 (계산된 월 기준)
-      const alreadySent = await checkExistingAlert('paldogam', paldogamTargetMonth, channelId);
-      if (alreadySent) {
-        console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+      if (isAfternoon && !isTestMode) {
+         console.log(`⏳ [SKIP] Paldogam ${currentDay}일 정산일이지만 오후라 신규 발송 생략`);
       } else {
-        console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송 (대상월: ${paldogamTargetMonth}월)`);
-        await sendFirstApprovalAlert('paldogam', paldogamTargetMonth, currentDay, channelId);
-        alertsSent++;
+        // ✅ 이미 보낸 알림이 있는지 확인 (계산된 월 기준)
+        const alreadySent = await checkExistingAlert('paldogam', paldogamTargetMonth, channelId);
+        if (alreadySent) {
+          console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+        } else {
+          console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송 (대상월: ${paldogamTargetMonth}월)`);
+          await sendFirstApprovalAlert('paldogam', paldogamTargetMonth, currentDay, channelId);
+          alertsSent++;
+        }
       }
     } else {
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
@@ -364,6 +389,9 @@ async function remindIncompleteSettlements(platform, month, channelId) {
     return 0;
   }
 
+  // 우리 메시지인지 식별: 플랫폼/월 키워드 (한글 명칭 매핑)
+  const platformKo = platform === 'queenit' ? '퀸잇' : (platform === 'paldogam' ? '팔도감' : platform);
+
   // 미완료 건 찾기
   const incompleteSettlements = [];
   for (const msg of messages) {
@@ -373,9 +401,6 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       .join(' ');
 
     const searchable = `${text}\n${blockText}`;
-
-    // 우리 메시지인지 식별: 플랫폼/월 키워드 (한글 명칭 매핑)
-    const platformKo = platform === 'queenit' ? '퀸잇' : (platform === 'paldogam' ? '팔도감' : platform);
     const isTarget = searchable.includes(platformKo) && searchable.includes(`${month}월`);
 
     if (isTarget) {
