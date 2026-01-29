@@ -16,7 +16,54 @@ const CONFIG = {
   REMINDER_MAX_DAYS: 5,                    // 최초 알림 이후 최대 리마인드 일수
 
   // 타임존
-  TIMEZONE: "Asia/Seoul"
+  TIMEZONE: "Asia/Seoul",
+
+  // ============================================
+  // 그룹웨어 마감 워크플로우 설정
+  // ============================================
+  GROUPWARE_DEADLINE: {
+    // 공통 설정
+    common: {
+      // 공휴일 주간 자동 스킵 (설, 추석 등 연휴 포함된 주)
+      skipHolidayWeeks: true,
+      // 공휴일이 목요일인 경우 수요일로 자동 이동
+      autoShiftOnHoliday: true,
+      // 자동 이동 시 대체 요일 (3=수요일, 5=금요일)
+      fallbackDayOfWeek: 3
+    },
+    // 라포랩스 설정
+    rapolabs: {
+      name: '라포랩스',
+      channelId: 'C02DA0GK8MC',
+      owners: ['U06K3R3R6QK', 'U05R2F50Y4X'],
+      transferManager: 'U044Z1AB6CT',
+      defaultDayOfWeek: 4,  // 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
+      // 예외 스케줄 (날짜 기반 - 더 직관적!)
+      // 형식: { 'YYYY-MM-DD': null | dayOfWeek | 'YYYY-MM-DD' }
+      //   null = 해당 주 스킵
+      //   숫자 = 해당 요일로 변경 (같은 주 내)
+      //   날짜 = 특정 날짜로 변경
+      exceptions: {
+        // 예시:
+        // '2025-02-06': null,         // 2월 6일이 포함된 주 스킵
+        // '2025-02-13': 3,            // 2월 13일 주는 수요일(3)로 변경
+        // '2025-02-20': '2025-02-19', // 2월 20일 주는 19일로 변경
+      }
+    },
+    // 라포스튜디오 설정
+    rapostudio: {
+      name: '라포스튜디오',
+      channelId: 'C02DA0GK8MC',
+      owners: ['U06K3R3R6QK', 'U05R2F50Y4X'],
+      transferManager: 'U044Z1AB6CT',
+      defaultDayOfWeek: 4,
+      exceptions: {
+        // 예시:
+        // '2025-03-06': null,         // 3월 6일이 포함된 주 스킵
+        // '2025-03-13': 5,            // 3월 13일 주는 금요일(5)로 변경
+      }
+    }
+  }
 };
 
 // 환경변수 검증

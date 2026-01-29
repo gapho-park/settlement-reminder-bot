@@ -168,6 +168,20 @@ function hasRemindedAfter(last, target) {
 // ============================================
 
 /**
+ * ISO 주차 계산 (YYYY-WW 형식 반환)
+ * @param {Date} date - 날짜
+ * @returns {string} - "YYYY-WW" 형식 (예: "2025-05")
+ */
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-${String(weekNo).padStart(2, '0')}`;
+}
+
+/**
  * 날짜를 "YYYY-MM-DD" 형식으로 포맷
  */
 function formatDate(date) {
@@ -211,5 +225,6 @@ module.exports = {
 
   // 포맷팅
   formatDate,
-  formatDateTime
+  formatDateTime,
+  getISOWeek
 };

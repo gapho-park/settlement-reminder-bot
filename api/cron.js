@@ -5,7 +5,7 @@
 
 const axios = require('axios');
 const CONFIG = require('./config');
-const { stripTime, formatDate } = require('./utils');
+const { stripTime, formatDate, getISOWeek, isHoliday, isHolidayOrWeekend } = require('./utils');
 
 // ============================================
 // 정산 유형별 제목 생성 함수
@@ -191,28 +191,11 @@ module.exports = async (req, res) => {
     const todayStr = formatDate(today);
     const currentDay = today.getDate();
     const currentMonth = today.getMonth() + 1;
-    
-    // 한국 시간 기준 시각 구하기 (오후 실행 시 신규 알림 방지용)
-    // toLocaleString은 "2025. 12. 11. 오후 4:55:00" 형식으로 나올 수 있음 (Node 버전에 따라 다름)
-    // 안전하게 Intl.DateTimeFormat 사용
-    const kstDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-    const currentHourKst = kstDate.getHours();
-    
     console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일)`);
-    console.log(`⏰ 현재 시각(KST): ${currentHourKst}시`);
 
     // 채널 선택: testDate가 있으면 테스트 채널, 아니면 파이낸스 채널
     const channelId = req.query.testDate ? CONFIG.TEST_CHANNEL_ID : CONFIG.FINANCE_CHANNEL_ID;
     console.log(`📢 사용 채널: ${channelId}`);
-    
-    // [안전장치] 오후 12시 이후에는 신규 알림(New Alert) 발송 차단
-    // 단, testDate 파라미터로 강제 테스트하는 경우는 제외
-    const isAfternoon = currentHourKst >= 12;
-    const isTestMode = !!req.query.testDate;
-    
-    if (isAfternoon && !isTestMode) {
-        console.log('🚫 오후(12시 이후) 실행이므로 신규 정산 알림은 건너뛰고 리마인더만 수행합니다.');
-    }
 
     let alertsSent = 0;
 
@@ -221,18 +204,14 @@ module.exports = async (req, res) => {
     // ============================================
     console.log('\n🔍 Queenit 정산 확인');
     if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
-      if (isAfternoon && !isTestMode) {
-         console.log(`⏳ [SKIP] Queenit ${currentDay}일 정산일이지만 오후라 신규 발송 생략`);
+      // ✅ 이미 보낸 알림이 있는지 확인
+      const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
+      if (alreadySent) {
+        console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
       } else {
-        // ✅ 이미 보낸 알림이 있는지 확인
-        const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
-        if (alreadySent) {
-          console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
-        } else {
-          console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
-          await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
-          alertsSent++;
-        }
+        console.log(`✅ Queenit ${currentDay}일 정산일 - 첫 알림 발송`);
+        await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
+        alertsSent++;
       }
     } else {
       console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
@@ -244,41 +223,27 @@ module.exports = async (req, res) => {
     // Paldogam 정산 확인
     // ============================================
     console.log('\n🔍 Paldogam 정산 확인');
-    
-    // 팔도감 월 계산 (3차 정산인 1일은 전월 귀속)
-    let paldogamTargetMonth = currentMonth;
-    if (currentDay === 1) {
-      paldogamTargetMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-    }
-
     if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      if (isAfternoon && !isTestMode) {
-         console.log(`⏳ [SKIP] Paldogam ${currentDay}일 정산일이지만 오후라 신규 발송 생략`);
+      // ✅ 이미 보낸 알림이 있는지 확인
+      const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+      if (alreadySent) {
+        console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
       } else {
-        // ✅ 이미 보낸 알림이 있는지 확인 (계산된 월 기준)
-        const alreadySent = await checkExistingAlert('paldogam', paldogamTargetMonth, channelId);
-        if (alreadySent) {
-          console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
-        } else {
-          console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송 (대상월: ${paldogamTargetMonth}월)`);
-          await sendFirstApprovalAlert('paldogam', paldogamTargetMonth, currentDay, channelId);
-          alertsSent++;
-        }
+        console.log(`✅ Paldogam ${currentDay}일 정산일 - 첫 알림 발송`);
+        await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
+        alertsSent++;
       }
     } else {
       console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      
-      // 3차(전월)와 1,2차(당월)가 혼재할 수 있으므로 전월/당월 모두 리마인드 체크
-      const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-      
-      console.log(`👉 [Paldogam] 전월(${prevMonth}월) 미완료 건 확인`);
-      let reminded = await remindIncompleteSettlements('paldogam', prevMonth, channelId);
-      
-      console.log(`👉 [Paldogam] 당월(${currentMonth}월) 미완료 건 확인`);
-      reminded += await remindIncompleteSettlements('paldogam', currentMonth, channelId);
-      
+      const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
       alertsSent += reminded;
     }
+
+    // ============================================
+    // 그룹웨어 마감 워크플로우 (라포랩스, 라포스튜디오)
+    // ============================================
+    const groupwareAlerts = await processGroupwareDeadlines(today, channelId);
+    alertsSent += groupwareAlerts;
 
     // ============================================
     // 결과 반환
@@ -378,6 +343,230 @@ async function sendFirstApprovalAlert(platform, month, day, channelId) {
 // 미완료 건 리마인드 (스레드로 멘션)
 // - 동일 스레드에 최근 N시간 내 리마인드가 있으면 중복 전송 방지
 // ============================================
+// ============================================
+// 해당 주에 공휴일이 포함되어 있는지 확인
+// ============================================
+function hasHolidayInWeek(date) {
+  const day = date.getDay();
+  const monday = new Date(date);
+  monday.setDate(date.getDate() - day + (day === 0 ? -6 : 1));
+
+  for (let i = 0; i < 7; i++) {
+    const checkDate = new Date(monday);
+    checkDate.setDate(monday.getDate() + i);
+    if (isHoliday(checkDate)) {
+      console.log(`🎌 ${formatDate(checkDate)}이 공휴일 - 해당 주 스킵 대상`);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ============================================
+// 날짜 문자열을 ISO 주차로 변환
+// ============================================
+function dateStringToWeek(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return getISOWeek(date);
+}
+
+// ============================================
+// 그룹웨어 마감 워크플로우 - 트리거 여부 확인
+// ============================================
+function shouldTriggerGroupwareDeadline(companyConfig, today, commonConfig) {
+  const currentWeek = getISOWeek(today);
+  const currentDayOfWeek = today.getDay();
+  const todayStr = formatDate(today);
+  const defaultDay = companyConfig.defaultDayOfWeek;
+
+  console.log(`📅 오늘: ${todayStr}, 주차: ${currentWeek}, 요일: ${currentDayOfWeek}`);
+
+  // 1. 날짜 기반 예외 스케줄 확인
+  for (const [exceptionDate, action] of Object.entries(companyConfig.exceptions || {})) {
+    const exceptionWeek = dateStringToWeek(exceptionDate);
+
+    if (exceptionWeek === currentWeek) {
+      // 이번 주에 예외가 설정됨
+      if (action === null) {
+        console.log(`⏭️ ${companyConfig.name}: ${exceptionDate} 설정으로 이번 주 스킵`);
+        return false;
+      }
+
+      if (typeof action === 'number') {
+        // 요일 변경
+        const shouldTrigger = currentDayOfWeek === action;
+        console.log(`🔄 ${companyConfig.name}: 이번 주는 요일 ${action}로 변경 (트리거: ${shouldTrigger})`);
+        return shouldTrigger;
+      }
+
+      if (typeof action === 'string') {
+        // 특정 날짜로 변경
+        const shouldTrigger = todayStr === action;
+        console.log(`📆 ${companyConfig.name}: 이번 주는 ${action}로 변경 (트리거: ${shouldTrigger})`);
+        return shouldTrigger;
+      }
+    }
+  }
+
+  // 2. 공휴일 자동 감지 (공통 설정)
+  if (commonConfig?.skipHolidayWeeks && hasHolidayInWeek(today)) {
+    console.log(`🎌 ${companyConfig.name}: 공휴일 주간 - 자동 스킵`);
+    return false;
+  }
+
+  // 3. 기본 요일이 공휴일인 경우 대체 요일로 자동 이동
+  if (commonConfig?.autoShiftOnHoliday && currentDayOfWeek === defaultDay) {
+    const defaultDayDate = new Date(today);
+    if (isHoliday(defaultDayDate)) {
+      console.log(`🔄 ${companyConfig.name}: 목요일이 공휴일 - 대체 요일 ${commonConfig.fallbackDayOfWeek}로 이동`);
+      return false; // 오늘은 트리거 안함 (대체 요일에 트리거)
+    }
+  }
+
+  // 대체 요일 체크 (기본 요일이 공휴일인 경우)
+  if (commonConfig?.autoShiftOnHoliday && currentDayOfWeek === commonConfig.fallbackDayOfWeek) {
+    // 이번 주 목요일이 공휴일인지 확인
+    const thursdayDate = new Date(today);
+    const diff = defaultDay - currentDayOfWeek;
+    thursdayDate.setDate(today.getDate() + diff);
+
+    if (isHoliday(thursdayDate)) {
+      console.log(`✅ ${companyConfig.name}: 목요일(${formatDate(thursdayDate)})이 공휴일 - 오늘(${currentDayOfWeek}) 대체 트리거`);
+      return true;
+    }
+  }
+
+  // 4. 기본 요일 체크
+  const shouldTrigger = currentDayOfWeek === defaultDay;
+  console.log(`📌 ${companyConfig.name}: 기본 요일 ${defaultDay} 체크 (현재: ${currentDayOfWeek}, 트리거: ${shouldTrigger})`);
+  return shouldTrigger;
+}
+
+// ============================================
+// 그룹웨어 마감 알림 발송
+// ============================================
+async function sendGroupwareDeadlineAlert(companyKey, companyConfig, channelId) {
+  const ownerMentions = companyConfig.owners.map(id => `<@${id}>`).join(', ');
+  const message = `${ownerMentions}님 ${companyConfig.name} 그룹웨어 마감이 완료되었다면 마감완료 버튼을 눌러주세요.`;
+
+  const payload = {
+    text: message,
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: message }
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '마감완료' },
+            style: 'primary',
+            value: JSON.stringify({
+              type: 'groupware_deadline',
+              company: companyKey,
+              companyName: companyConfig.name,
+              transferManager: companyConfig.transferManager,
+              allowedUsers: companyConfig.owners
+            }),
+            action_id: 'groupware_deadline_button'
+          }
+        ]
+      }
+    ]
+  };
+
+  const result = await slack.postMessage(channelId, payload);
+
+  if (result) {
+    console.log(`✅ ${companyConfig.name} 그룹웨어 마감 알림 발송 성공`);
+    return true;
+  } else {
+    console.error(`❌ ${companyConfig.name} 그룹웨어 마감 알림 발송 실패`);
+    return false;
+  }
+}
+
+// ============================================
+// 그룹웨어 마감 알림 이미 발송 여부 확인
+// ============================================
+async function checkExistingGroupwareAlert(companyKey, channelId, today) {
+  const messages = await slack.getConversationHistory(channelId, 50);
+  const todayStr = formatDate(today);
+
+  for (const msg of messages) {
+    // 오늘 발송된 메시지만 확인
+    const msgDate = new Date(parseFloat(msg.ts) * 1000);
+    const msgDateStr = formatDate(msgDate);
+    if (msgDateStr !== todayStr) continue;
+
+    // 그룹웨어 마감 버튼이 있는지 확인
+    const hasButton = (msg.blocks || []).some(
+      b => b.type === 'actions' && b.elements?.some(el => {
+        if (el.action_id !== 'groupware_deadline_button') return false;
+        try {
+          const data = JSON.parse(el.value);
+          return data.company === companyKey;
+        } catch {
+          return false;
+        }
+      })
+    );
+
+    if (hasButton) {
+      console.log(`📌 ${companyKey} 오늘 이미 알림 발송됨: ${msg.ts}`);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ============================================
+// 그룹웨어 마감 처리 메인 함수
+// ============================================
+async function processGroupwareDeadlines(today, channelId) {
+  console.log('\n🏢 그룹웨어 마감 워크플로우 처리 시작');
+
+  const groupwareConfig = CONFIG.GROUPWARE_DEADLINE;
+  if (!groupwareConfig) {
+    console.log('⚠️ 그룹웨어 마감 설정이 없습니다');
+    return 0;
+  }
+
+  const commonConfig = groupwareConfig.common || {};
+  let alertsSent = 0;
+
+  for (const [companyKey, companyConfig] of Object.entries(groupwareConfig)) {
+    // common 설정은 회사가 아니므로 스킵
+    if (companyKey === 'common') continue;
+
+    console.log(`\n🔍 ${companyConfig.name} 확인 중...`);
+
+    // 트리거 여부 확인
+    if (!shouldTriggerGroupwareDeadline(companyConfig, today, commonConfig)) {
+      console.log(`⏭️ ${companyConfig.name}: 오늘은 트리거 날짜가 아님`);
+      continue;
+    }
+
+    // 이미 발송 여부 확인
+    const targetChannelId = channelId || companyConfig.channelId;
+    const alreadySent = await checkExistingGroupwareAlert(companyKey, targetChannelId, today);
+    if (alreadySent) {
+      console.log(`✅ ${companyConfig.name}: 오늘 이미 알림 발송됨 - 건너뜀`);
+      continue;
+    }
+
+    // 알림 발송
+    const sent = await sendGroupwareDeadlineAlert(companyKey, companyConfig, targetChannelId);
+    if (sent) alertsSent++;
+  }
+
+  console.log(`\n📊 그룹웨어 마감: ${alertsSent}건 처리`);
+  return alertsSent;
+}
+
 async function remindIncompleteSettlements(platform, month, channelId) {
   console.log(`\n📋 ${platform} ${month}월 미완료 건 확인 시작`);
 
@@ -389,9 +578,6 @@ async function remindIncompleteSettlements(platform, month, channelId) {
     return 0;
   }
 
-  // 우리 메시지인지 식별: 플랫폼/월 키워드 (한글 명칭 매핑)
-  const platformKo = platform === 'queenit' ? '퀸잇' : (platform === 'paldogam' ? '팔도감' : platform);
-
   // 미완료 건 찾기
   const incompleteSettlements = [];
   for (const msg of messages) {
@@ -401,15 +587,24 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       .join(' ');
 
     const searchable = `${text}\n${blockText}`;
-    const isTarget = searchable.includes(platformKo) && searchable.includes(`${month}월`);
 
-    if (isTarget) {
+    // 완료 공지(예: '✅ ...')는 스킵
+    if (text.startsWith('✅')) continue;
+
+    // 우리 메시지인지 식별: 플랫폼/월 키워드 + 버튼 존재
+    const hasButton = (msg.blocks || []).some(
+      b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
+    );
+    const isTarget = searchable.includes(platform) && searchable.includes(`${month}월`);
+
+    if (isTarget && hasButton) {
       incompleteSettlements.push(msg);
+      console.log(`📌 미완료 건 발견: ts=${msg.ts}`);
     }
   }
 
   if (incompleteSettlements.length === 0) {
-    console.log(`✅ ${platform} ${month}월 관련 메시지 없음 (검색어: ${platformKo}, ${month}월)`);
+    console.log(`✅ ${platform} ${month}월 미완료 건 없음`);
     return 0;
   }
 
@@ -420,44 +615,11 @@ async function remindIncompleteSettlements(platform, month, channelId) {
   let reminded = 0;
 
   for (const settlement of incompleteSettlements) {
-    // 스레드 답글 조회 (부모 메시지 포함)
-    const replies = await slack.getThreadReplies(channelId, settlement.ts, 100);
-    
-    // 1. 최종 완료 여부 확인
-    const isCompleted = replies.some(r => r.text && r.text.includes('✅ 모든 승인이 완료되었습니다'));
-    if (isCompleted) {
-      console.log(`✅ 이미 완료된 정산건: ts=${settlement.ts}`);
-      continue;
-    }
-
-    // 2. 가장 최신의 버튼이 있는 메시지 찾기 (역순 탐색)
-    // (본문 또는 블록에 'settlement_approve_button' 액션 ID가 있는 메시지)
-    let latestActionMsg = null;
-    for (let i = replies.length - 1; i >= 0; i--) {
-      const r = replies[i];
-      const hasButton = (r.blocks || []).some(
-        b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
-      );
-      if (hasButton) {
-        latestActionMsg = r;
-        break;
-      }
-    }
-
-    if (!latestActionMsg) {
-      // 버튼이 있는 메시지를 찾지 못한 경우 (첫 메시지 생성 후 삭제되었거나 등)
-      // 하지만 첫 메시지 자체에 버튼이 있을 수 있음 (replies[0] === settlement)
-      // 위 루프는 replies 전체를 돌므로 포함됨.
-      // 만약 여기까지 왔는데도 없으면 정말 없는 것.
-      console.log(`⚠️ 진행 중인 버튼을 찾을 수 없음: ts=${settlement.ts}`);
-      continue;
-    }
-
-    // 3. 현재 단계 및 담당자 파악
+    // 현재 완료되지 않은 단계 담당자 파악
     let currentStep = 0;
     let userToRemind = null;
 
-    const actionBlock = (latestActionMsg.blocks || []).find(b => b.type === 'actions');
+    const actionBlock = (settlement.blocks || []).find(b => b.type === 'actions');
     const firstEl = actionBlock?.elements?.[0];
     if (firstEl?.value) {
       try {
@@ -472,12 +634,10 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       }
     }
 
-    if (!userToRemind) {
-      console.warn(`⚠️ 리마인드 대상 유저를 찾을 수 없음: ts=${latestActionMsg.ts}`);
-      continue;
-    }
+    if (!userToRemind) continue;
 
-    // 4. 스레드 내 최근 리마인드 여부 체크
+    // 스레드 내 최근 리마인드 여부 체크
+    const replies = await slack.getThreadReplies(channelId, settlement.ts, 100);
     const hasRecentReminder = replies.some(r => {
       const txt = (r.text || '').trim();
       const isOurReminder = txt.startsWith('⏰ *리마인더*');
@@ -491,7 +651,6 @@ async function remindIncompleteSettlements(platform, month, channelId) {
       continue;
     }
 
-    // 5. 리마인드 발송
     const reminderMsg =
       `⏰ *리마인더* <@${userToRemind}>님, ${platform} ${month}월 정산건이 아직 완료되지 않았습니다. 확인 부탁드립니다.\n` +
       `시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;

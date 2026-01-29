@@ -143,11 +143,84 @@ class SlackClient {
 const slack = new SlackClient();
 
 // ============================================
+// 그룹웨어 마감 버튼 클릭 처리
+// ============================================
+async function handleGroupwareDeadlineButton(payload, actionData) {
+  const { company, companyName, transferManager, allowedUsers } = actionData;
+  const channelId = payload.container?.channel_id || payload.channel?.id;
+  const ts = payload.container?.message_ts || payload.message?.ts;
+  const userId = payload.user?.id;
+  const userName = payload.user?.name || 'Unknown';
+
+  console.log(`🏢 그룹웨어 마감 버튼 클릭: company=${companyName}, userId=${userId}`);
+
+  // 권한 확인
+  if (!allowedUsers.includes(userId)) {
+    console.warn(`⚠️ 권한 없는 사용자: ${userId}`);
+    // Slack에서 ephemeral 메시지로 알림 (해당 사용자에게만 보이는 메시지)
+    try {
+      await axios.post('https://slack.com/api/chat.postEphemeral', {
+        channel: channelId,
+        user: userId,
+        text: `⚠️ 마감완료 버튼은 지정된 담당자만 클릭할 수 있습니다.`
+      }, {
+        headers: {
+          'Authorization': `Bearer ${CONFIG.SLACK_BOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (err) {
+      console.error('❌ ephemeral 메시지 전송 실패:', err.message);
+    }
+    return { ok: true };
+  }
+
+  const approvalTimeKst = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+  // 원본 메시지 업데이트 (완료 표시)
+  const completedBlocks = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `✅ *${companyName} 그룹웨어 마감 완료*`
+      }
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `완료자: <@${userId}> (${userName}) | 시간: ${approvalTimeKst}`
+        }
+      ]
+    }
+  ];
+
+  await slack.updateMessage(channelId, ts, {
+    blocks: completedBlocks,
+    text: `${companyName} 그룹웨어 마감 완료`
+  });
+
+  // 스레드에 이체등록 요청 메시지 작성
+  const transferMessage = `<@${transferManager}>님 ${companyName} 그룹웨어 마감이 완료되었습니다. 이체등록을 해주세요.`;
+
+  await slack.postMessage(channelId, {
+    thread_ts: ts,
+    text: transferMessage
+  });
+
+  console.log(`✅ ${companyName} 그룹웨어 마감 처리 완료, 이체등록 요청 발송`);
+
+  return { ok: true };
+}
+
+// ============================================
 // 버튼 클릭 처리
 // ============================================
 async function handleButtonClick(payload) {
   console.log('✅ Block actions 수신');
-  
+
   const action = payload.actions?.[0];
   if (!action) {
     console.warn('⚠️ actions 없음');
@@ -160,6 +233,11 @@ async function handleButtonClick(payload) {
   } catch (_) {
     console.warn('⚠️ 액션 데이터 파싱 실패');
     return { ok: false };
+  }
+
+  // 그룹웨어 마감 버튼 처리
+  if (action.action_id === 'groupware_deadline_button') {
+    return await handleGroupwareDeadlineButton(payload, actionData);
   }
 
   const { platform, step, month, day, title } = actionData;
