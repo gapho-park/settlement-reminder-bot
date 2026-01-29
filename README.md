@@ -1,4 +1,4 @@
-# Settlement Reminder Bot
+# Reminder Bot
 
 Slack에서 정산 알림 및 그룹웨어 마감을 자동화하는 봇입니다.
 
