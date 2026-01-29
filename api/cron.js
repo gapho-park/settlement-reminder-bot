@@ -241,9 +241,18 @@ module.exports = async (req, res) => {
 
     // ============================================
     // 그룹웨어 마감 워크플로우 (라포랩스, 라포스튜디오)
+    // - 목요일 10시 크론에서만 실행 (UTC 01:00 = KST 10:00)
     // ============================================
-    const groupwareAlerts = await processGroupwareDeadlines(today, channelId);
-    alertsSent += groupwareAlerts;
+    const nowKST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const currentHourKST = nowKST.getHours();
+    const isGroupwareTime = currentHourKST >= 9 && currentHourKST <= 11; // 9~11시 사이에만 실행
+
+    if (isGroupwareTime || req.query.testDate) {
+      const groupwareAlerts = await processGroupwareDeadlines(today, channelId);
+      alertsSent += groupwareAlerts;
+    } else {
+      console.log(`\n🏢 그룹웨어 마감: 현재 ${currentHourKST}시 - 10시 크론에서만 실행 (건너뜀)`);
+    }
 
     // ============================================
     // 결과 반환
