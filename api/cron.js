@@ -194,8 +194,8 @@ module.exports = async (req, res) => {
     const isTodayBusinessDay = !isHolidayOrWeekend(today);
     console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일, ${isTodayBusinessDay ? '영업일' : '주말/공휴일'})`);
 
-    // 채널 선택: testDate가 있으면 테스트 채널, 아니면 파이낸스 채널
-    const channelId = req.query.testDate ? CONFIG.TEST_CHANNEL_ID : CONFIG.FINANCE_CHANNEL_ID;
+    // 채널 선택: testDate가 있어도 실제 채널 사용 (수동 발송 시)
+    const channelId = CONFIG.FINANCE_CHANNEL_ID;
     console.log(`📢 사용 채널: ${channelId}`);
 
     // 주말/공휴일이면 정산 알림 처리 건너뜀 (리마인드만 실행)
