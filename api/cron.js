@@ -5,7 +5,7 @@
 
 const axios = require('axios');
 const CONFIG = require('./config');
-const { stripTime, formatDate, getISOWeek, isHoliday, isHolidayOrWeekend } = require('./utils');
+const { stripTime, formatDate, getISOWeek, isHoliday, isHolidayOrWeekend, getNextBusinessDay, getPreviousBusinessDay } = require('./utils');
 
 // ============================================
 // 정산 유형별 제목 생성 함수
@@ -191,11 +191,17 @@ module.exports = async (req, res) => {
     const todayStr = formatDate(today);
     const currentDay = today.getDate();
     const currentMonth = today.getMonth() + 1;
-    console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일)`);
+    const isTodayBusinessDay = !isHolidayOrWeekend(today);
+    console.log(`📅 오늘 날짜: ${todayStr} (${currentDay}일, ${isTodayBusinessDay ? '영업일' : '주말/공휴일'})`);
 
     // 채널 선택: testDate가 있으면 테스트 채널, 아니면 파이낸스 채널
     const channelId = req.query.testDate ? CONFIG.TEST_CHANNEL_ID : CONFIG.FINANCE_CHANNEL_ID;
     console.log(`📢 사용 채널: ${channelId}`);
+
+    // 주말/공휴일이면 정산 알림 처리 건너뜀 (리마인드만 실행)
+    if (!isTodayBusinessDay) {
+      console.log(`\n⏭️ 오늘이 주말/공휴일이므로 정산 알림은 건너뜀 (리마인드만 확인)`);
+    }
 
     let alertsSent = 0;
 
@@ -203,8 +209,9 @@ module.exports = async (req, res) => {
     // Queenit 정산 확인
     // ============================================
     console.log('\n🔍 Queenit 정산 확인');
-    if (APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
-      // ✅ 이미 보낸 알림이 있는지 확인
+    
+    // 1. 오늘이 영업일이고 정산일인 경우
+    if (isTodayBusinessDay && APPROVAL_FLOW.queenit.dates.includes(currentDay)) {
       const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
       if (alreadySent) {
         console.log(`✅ Queenit ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
@@ -213,18 +220,54 @@ module.exports = async (req, res) => {
         await sendFirstApprovalAlert('queenit', currentMonth, currentDay, channelId);
         alertsSent++;
       }
-    } else {
-      console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      const reminded = await remindIncompleteSettlements('queenit', currentMonth, channelId);
-      alertsSent += reminded;
+    }
+    // 2. 오늘이 영업일이고 정산일이 아니지만, 이전 영업일부터 오늘 사이에 정산일이 있었던 경우
+    else if (isTodayBusinessDay) {
+      // 이전 영업일부터 오늘까지 사이에 정산일이 있었는지 확인
+      const prevBusinessDay = getPreviousBusinessDay(today);
+      let foundSettlementDay = null;
+      
+      for (const settlementDay of APPROVAL_FLOW.queenit.dates) {
+        // 이번 달의 정산일인지 확인
+        const settlementDate = new Date(today.getFullYear(), today.getMonth(), settlementDay);
+        
+        // 정산일이 이전 영업일과 오늘 사이에 있고, 주말/공휴일이었는지 확인
+        if (settlementDate.getMonth() === today.getMonth() && 
+            settlementDate.getTime() > prevBusinessDay.getTime() && 
+            settlementDate.getTime() <= today.getTime() &&
+            isHolidayOrWeekend(settlementDate)) {
+          foundSettlementDay = settlementDay;
+          break;
+        }
+      }
+      
+      if (foundSettlementDay) {
+        const alreadySent = await checkExistingAlert('queenit', currentMonth, channelId);
+        if (alreadySent) {
+          console.log(`✅ Queenit ${foundSettlementDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+        } else {
+          console.log(`✅ Queenit ${foundSettlementDay}일 정산일이 주말/공휴일이었으므로 오늘(${todayStr}) 발송`);
+          await sendFirstApprovalAlert('queenit', currentMonth, foundSettlementDay, channelId);
+          alertsSent++;
+        }
+      } else {
+        console.log(`📌 Queenit: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
+        const reminded = await remindIncompleteSettlements('queenit', currentMonth, channelId);
+        alertsSent += reminded;
+      }
+    }
+    // 3. 주말/공휴일이면 리마인드만 확인
+    else {
+      console.log(`📌 Queenit: 주말/공휴일이므로 정산 알림 건너뜀`);
     }
 
     // ============================================
     // Paldogam 정산 확인
     // ============================================
     console.log('\n🔍 Paldogam 정산 확인');
-    if (APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      // ✅ 이미 보낸 알림이 있는지 확인
+    
+    // 1. 오늘이 영업일이고 정산일인 경우
+    if (isTodayBusinessDay && APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
       const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
       if (alreadySent) {
         console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
@@ -233,10 +276,45 @@ module.exports = async (req, res) => {
         await sendFirstApprovalAlert('paldogam', currentMonth, currentDay, channelId);
         alertsSent++;
       }
-    } else {
-      console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
-      const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
-      alertsSent += reminded;
+    }
+    // 2. 오늘이 영업일이고 정산일이 아니지만, 이전 영업일부터 오늘 사이에 정산일이 있었던 경우
+    else if (isTodayBusinessDay) {
+      // 이전 영업일부터 오늘까지 사이에 정산일이 있었는지 확인
+      const prevBusinessDay = getPreviousBusinessDay(today);
+      let foundSettlementDay = null;
+      
+      for (const settlementDay of APPROVAL_FLOW.paldogam.dates) {
+        // 이번 달의 정산일인지 확인
+        const settlementDate = new Date(today.getFullYear(), today.getMonth(), settlementDay);
+        
+        // 정산일이 이전 영업일과 오늘 사이에 있고, 주말/공휴일이었는지 확인
+        if (settlementDate.getMonth() === today.getMonth() && 
+            settlementDate.getTime() > prevBusinessDay.getTime() && 
+            settlementDate.getTime() <= today.getTime() &&
+            isHolidayOrWeekend(settlementDate)) {
+          foundSettlementDay = settlementDay;
+          break;
+        }
+      }
+      
+      if (foundSettlementDay) {
+        const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+        if (alreadySent) {
+          console.log(`✅ Paldogam ${foundSettlementDay}일 정산 알림이 이미 존재함 - 건너뜀`);
+        } else {
+          console.log(`✅ Paldogam ${foundSettlementDay}일 정산일이 주말/공휴일이었으므로 오늘(${todayStr}) 발송`);
+          await sendFirstApprovalAlert('paldogam', currentMonth, foundSettlementDay, channelId);
+          alertsSent++;
+        }
+      } else {
+        console.log(`📌 Paldogam: 오늘(${currentDay}일)은 정산일이 아님 - 미완료 건 확인`);
+        const reminded = await remindIncompleteSettlements('paldogam', currentMonth, channelId);
+        alertsSent += reminded;
+      }
+    }
+    // 3. 주말/공휴일이면 리마인드만 확인
+    else {
+      console.log(`📌 Paldogam: 주말/공휴일이므로 정산 알림 건너뜀`);
     }
 
     // ============================================
