@@ -15,7 +15,11 @@ function getSettlementTitle(platform, day, month) {
     if (day === 11) return `퀸잇 ${month}월 정규 정산대금`;
     if (day === 25) return `퀸잇 ${month}월 보름 정산대금`;
   } else if (platform === 'paldogam') {
-    if (day === 1) return `팔도감 ${month}월 3차 정산대금`;
+    // 1일 정산은 전월 3차 정산 (예: 2월 1일 = 1월 3차 정산)
+    if (day === 1) {
+      const prevMonth = month === 1 ? 12 : month - 1;
+      return `팔도감 ${prevMonth}월 3차 정산대금`;
+    }
     if (day === 11) return `팔도감 ${month}월 1차 정산대금`;
     if (day === 21) return `팔도감 ${month}월 2차 정산대금`;
   }
@@ -268,7 +272,11 @@ module.exports = async (req, res) => {
     
     // 1. 오늘이 영업일이고 정산일인 경우
     if (isTodayBusinessDay && APPROVAL_FLOW.paldogam.dates.includes(currentDay)) {
-      const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+      // 팔도감 1일 정산은 전월 3차 정산이므로 전월을 사용
+      const settlementMonth = (currentDay === 1) 
+        ? (currentMonth === 1 ? 12 : currentMonth - 1)
+        : currentMonth;
+      const alreadySent = await checkExistingAlert('paldogam', settlementMonth, channelId);
       if (alreadySent) {
         console.log(`✅ Paldogam ${currentDay}일 정산 알림이 이미 존재함 - 건너뜀`);
       } else {
@@ -298,7 +306,11 @@ module.exports = async (req, res) => {
       }
       
       if (foundSettlementDay) {
-        const alreadySent = await checkExistingAlert('paldogam', currentMonth, channelId);
+        // 팔도감 1일 정산은 전월 3차 정산이므로 전월을 사용
+        const settlementMonth = (foundSettlementDay === 1)
+          ? (currentMonth === 1 ? 12 : currentMonth - 1)
+          : currentMonth;
+        const alreadySent = await checkExistingAlert('paldogam', settlementMonth, channelId);
         if (alreadySent) {
           console.log(`✅ Paldogam ${foundSettlementDay}일 정산 알림이 이미 존재함 - 건너뜀`);
         } else {
