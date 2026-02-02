@@ -14,7 +14,11 @@ function getSettlementTitle(platform, day, month) {
     if (day === 11) return `퀸잇 ${month}월 정규 정산대금`;
     if (day === 25) return `퀸잇 ${month}월 보름 정산대금`;
   } else if (platform === 'paldogam') {
-    if (day === 1) return `팔도감 ${month}월 3차 정산대금`;
+    // 1일 정산은 전월 3차 정산 (예: 2월 1일 = 1월 3차 정산)
+    if (day === 1) {
+      const prevMonth = month === 1 ? 12 : month - 1;
+      return `팔도감 ${prevMonth}월 3차 정산대금`;
+    }
     if (day === 11) return `팔도감 ${month}월 1차 정산대금`;
     if (day === 21) return `팔도감 ${month}월 2차 정산대금`;
   }

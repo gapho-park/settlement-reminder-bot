@@ -1,6 +1,7 @@
-// scripts/send-feb-1-alert.js
-// 2월 1일 팔도감 정산 알림 수동 발송 스크립트
+// scripts/force-send-feb-1-alert.js
+// 2월 1일 팔도감 정산 알림 강제 발송 스크립트 (주말/공휴일 무시)
 
+require('dotenv').config();
 const axios = require('axios');
 const CONFIG = require('../api/config');
 
@@ -55,7 +56,7 @@ class SlackClient {
 const slack = new SlackClient();
 
 // ============================================
-// 정산 제목 생성
+// 정산 제목 생성 (1일은 전월 3차 정산)
 // ============================================
 function getSettlementTitle(platform, day, month) {
   if (platform === 'paldogam') {
@@ -105,6 +106,7 @@ async function sendFirstApprovalAlert(platform, month, day, channelId) {
 
   if (result) {
     console.log(`✅ ${platform} ${month}월 첫 번째 알림 발송 성공`);
+    console.log(`📝 제목: ${title}`);
     return true;
   } else {
     console.error(`❌ ${platform} ${month}월 알림 발송 실패`);
@@ -117,7 +119,7 @@ async function sendFirstApprovalAlert(platform, month, day, channelId) {
 // ============================================
 async function main() {
   console.log(`\n${'='.repeat(50)}`);
-  console.log('📢 2월 1일 팔도감 정산 알림 수동 발송');
+  console.log('📢 2월 1일 팔도감 정산 알림 강제 발송');
   console.log(`${'='.repeat(50)}\n`);
 
   try {
@@ -128,7 +130,8 @@ async function main() {
 
     console.log(`📅 날짜: ${month}월 ${day}일`);
     console.log(`📢 플랫폼: ${platform}`);
-    console.log(`💬 채널: ${channelId}\n`);
+    console.log(`💬 채널: ${channelId}`);
+    console.log(`⚠️ 주말/공휴일 무시하고 강제 발송\n`);
 
     const success = await sendFirstApprovalAlert(platform, month, day, channelId);
 
