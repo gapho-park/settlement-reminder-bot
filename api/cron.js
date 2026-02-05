@@ -691,14 +691,45 @@ async function remindIncompleteSettlements(platform, month, channelId) {
     if (text.startsWith('✅')) continue;
 
     // 우리 메시지인지 식별: 플랫폼/월 키워드 + 버튼 존재
-    const hasButton = (msg.blocks || []).some(
-      b => b.type === 'actions' && b.elements?.some(el => el.action_id === 'settlement_approve_button')
+    const actionBlock = (msg.blocks || []).find(b => b.type === 'actions');
+    const buttonElement = actionBlock?.elements?.find(
+      el => el.action_id === 'settlement_approve_button'
     );
-    const isTarget = searchable.includes(platform) && searchable.includes(`${month}월`);
+    const hasButton = !!buttonElement;
+    
+    if (!hasButton) continue;
+    
+    // 버튼의 value에서 실제 정산 월 정보 추출
+    // 팔도감 1일 정산은 전월 3차 정산이므로 버튼에 저장된 month가 아닌 실제 정산 월을 찾아야 함
+    let targetMonth = month;
+    let isPlatformMatch = false;
+    
+    if (buttonElement?.value) {
+      try {
+        const actionData = JSON.parse(buttonElement.value);
+        if (actionData.platform === platform) {
+          isPlatformMatch = true;
+          // 팔도감 1일 정산은 전월 3차 정산
+          if (platform === 'paldogam' && actionData.day === 1) {
+            targetMonth = actionData.month === 1 ? 12 : actionData.month - 1;
+          } else {
+            targetMonth = actionData.month;
+          }
+        }
+      } catch (e) {
+        // 파싱 실패 시 텍스트로만 매칭 시도
+        isPlatformMatch = searchable.includes(platform);
+      }
+    } else {
+      isPlatformMatch = searchable.includes(platform);
+    }
+    
+    // 플랫폼 매칭 + 월 매칭 확인
+    const isTarget = isPlatformMatch && searchable.includes(`${targetMonth}월`);
 
-    if (isTarget && hasButton) {
+    if (isTarget) {
       incompleteSettlements.push(msg);
-      console.log(`📌 미완료 건 발견: ts=${msg.ts}`);
+      console.log(`📌 미완료 건 발견: ts=${msg.ts}, platform=${platform}, targetMonth=${targetMonth}월`);
     }
   }
 
