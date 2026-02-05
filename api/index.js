@@ -142,6 +142,63 @@ class SlackClient {
       return false;
     }
   }
+
+  async addReaction(channel, timestamp, name) {
+    try {
+      console.log(`😀 이모지 반응 추가: channel=${channel}, ts=${timestamp}, name=${name}`);
+      const response = await axios.post(`${this.baseURL}/reactions.add`, {
+        channel,
+        timestamp,
+        name
+      }, { headers: this.headers });
+      
+      if (!response.data.ok) {
+        // 이미 반응이 있는 경우도 정상으로 처리
+        if (response.data.error === 'already_reacted') {
+          console.log('ℹ️ 이미 반응이 추가되어 있음');
+          return true;
+        }
+        console.error('❌ reactions.add 오류:', response.data.error);
+        return false;
+      }
+      console.log('✅ 이모지 반응 추가 성공');
+      return true;
+    } catch (err) {
+      console.error('❌ addReaction 실패:', err.message);
+      return false;
+    }
+  }
+
+  async getMessage(channel, ts) {
+    try {
+      console.log(`📋 메시지 조회: channel=${channel}, ts=${ts}`);
+      const response = await axios.get(`${this.baseURL}/conversations.replies`, {
+        headers: this.headers,
+        params: {
+          channel,
+          ts,
+          limit: 1
+        }
+      });
+      
+      if (!response.data.ok) {
+        console.error('❌ conversations.replies 오류:', response.data.error);
+        return null;
+      }
+      
+      const messages = response.data.messages || [];
+      if (messages.length === 0) {
+        console.log('ℹ️ 메시지를 찾을 수 없음');
+        return null;
+      }
+      
+      console.log('✅ 메시지 조회 성공');
+      return messages[0]; // 최초 메시지 반환
+    } catch (err) {
+      console.error('❌ getMessage 실패:', err.message);
+      return null;
+    }
+  }
 }
 
 const slack = new SlackClient();
@@ -358,6 +415,83 @@ async function handleButtonClick(payload) {
 }
 
 // ============================================
+// 스레드 댓글 완료 감지 및 이모지 추가
+// ============================================
+async function handleMessageEvent(payload) {
+  console.log('💬 Message 이벤트 수신');
+
+  // 봇 메시지는 무시
+  if (payload.event?.subtype === 'bot_message' || payload.event?.bot_id) {
+    console.log('ℹ️ 봇 메시지 무시');
+    return { ok: true };
+  }
+
+  // 스레드 댓글이 아니면 무시
+  const threadTs = payload.event?.thread_ts;
+  if (!threadTs) {
+    console.log('ℹ️ 스레드 댓글이 아님 - 무시');
+    return { ok: true };
+  }
+
+  // 메시지 텍스트 확인
+  const messageText = (payload.event?.text || '').toLowerCase().trim();
+  const channelId = payload.event?.channel;
+  const parentMessageTs = threadTs;
+
+  // 최초 메시지 조회하여 그룹웨어 알림인지 확인
+  const parentMessage = await slack.getMessage(channelId, parentMessageTs);
+  let isGroupwareMessage = false;
+  
+  if (parentMessage) {
+    // 그룹웨어 알림 메시지인지 확인 (버튼의 action_id로 판단)
+    const hasGroupwareButton = (parentMessage.blocks || []).some(block =>
+      block.type === 'actions' && block.elements?.some(el =>
+        el.action_id === 'groupware_deadline_button'
+      )
+    );
+    
+    if (hasGroupwareButton) {
+      isGroupwareMessage = true;
+      console.log('🏢 그룹웨어 알림 메시지로 확인됨');
+    }
+  }
+
+  // 완료 키워드 확인
+  let hasCompletionKeyword = false;
+  
+  if (isGroupwareMessage) {
+    // 그룹웨어 알림: "예약완료"만 감지
+    hasCompletionKeyword = messageText.includes('예약완료');
+    if (hasCompletionKeyword) {
+      console.log(`✅ 그룹웨어 알림 - "예약완료" 키워드 감지: "${messageText}"`);
+    }
+  } else {
+    // 정산 알림: 여러 완료 키워드 감지
+    const completionKeywords = ['예약완료', '완료', 'done', '완료됨', '처리완료', '등록완료'];
+    hasCompletionKeyword = completionKeywords.some(keyword => 
+      messageText.includes(keyword.toLowerCase())
+    );
+    if (hasCompletionKeyword) {
+      console.log(`✅ 정산 알림 - 완료 키워드 감지: "${messageText}"`);
+    }
+  }
+
+  if (!hasCompletionKeyword) {
+    console.log('ℹ️ 완료 키워드 없음 - 무시');
+    return { ok: true };
+  }
+
+  // 최초 메시지에 이모지 반응 추가
+  const emojiAdded = await slack.addReaction(channelId, parentMessageTs, 'white_check_mark');
+  
+  if (emojiAdded) {
+    console.log(`✅ 최초 메시지에 완료 이모지 추가: channel=${channelId}, ts=${parentMessageTs}`);
+  }
+
+  return { ok: true };
+}
+
+// ============================================
 // 메인 핸들러
 // ============================================
 module.exports = async (req, res) => {
@@ -420,6 +554,15 @@ module.exports = async (req, res) => {
           console.log('🎬 Block actions 처리 시작');
           const result = await handleButtonClick(payload);
           return resolve(res.status(200).json(result));
+        }
+
+        // Event Callback (메시지 이벤트)
+        if (payload.type === 'event_callback') {
+          console.log('📨 Event callback 처리 시작');
+          if (payload.event?.type === 'message') {
+            const result = await handleMessageEvent(payload);
+            return resolve(res.status(200).json(result));
+          }
         }
 
         console.log('ℹ️ 처리되지 않은 이벤트 타입:', payload.type);
